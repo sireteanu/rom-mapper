@@ -1,0 +1,19 @@
+services:
+  rom-mapper:
+    build: .
+    image: rom-mapper:latest
+    container_name: rom-mapper
+    # Run as the owner of your files (Unraid default: nobody:users = 99:100)
+    user: "${PUID:-99}:${PGID:-100}"
+    environment:
+      INPUT_CSV: /config/Rom_Mapping.csv
+      SRC_BASE: ${ROMS_PATH}
+      DEST_PATH: ${MAPPING_PATH}
+    volumes:
+      # Your private CSV stays on the host and is never baked into the image
+      - ${CONFIG_DIR}:/config:ro
+      # IMPORTANT: mount the emulation share at the SAME path inside the
+      # container as on the host. The script creates absolute symlinks, so the
+      # targets must resolve identically outside the container.
+      - ${EMULATION_ROOT}:${EMULATION_ROOT}
+    restart: "no"
