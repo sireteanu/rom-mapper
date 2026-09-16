@@ -4,3 +4,7 @@ config/*
 !config/Rom_Mapping.example.csv
 Rom_Mapping*.csv
 !config/Rom_Mapping.example.csv
+rom-mapper-state.json
+*.bak
+__pycache__/
+.venv/
