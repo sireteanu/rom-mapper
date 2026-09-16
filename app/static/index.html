@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ROM Mapper</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085; --border: #dfe3ea;
+    --accent: #3b5bdb; --accent-text: #fff; --danger: #c92a2a; --ok: #2b8a3e; --warn: #b7791f;
+    --new-bg: #e7f0ff; --missing-bg: #fff1f0; --input-bg: #fff; --hover: #f1f3f7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --panel: #1a1e26; --text: #e6e9ef; --muted: #8b93a3; --border: #2c323e;
+      --accent: #5c7cfa; --accent-text: #fff; --danger: #ff6b6b; --ok: #51cf66; --warn: #fcc419;
+      --new-bg: #1c2742; --missing-bg: #3a1d1f; --input-bg: #12151b; --hover: #222834;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 16px 20px 8px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  h1 { font-size: 20px; margin: 0; flex: 1 1 auto; }
+  .paths { color: var(--muted); font-size: 12px; padding: 0 20px; }
+  .paths code { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+  button { font: inherit; border: 1px solid var(--border); background: var(--panel); color: var(--text);
+           border-radius: 6px; padding: 6px 12px; cursor: pointer; white-space: nowrap; }
+  button:hover:not(:disabled) { background: var(--hover); }
+  button:disabled { opacity: .5; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  button.primary:hover:not(:disabled) { filter: brightness(1.1); background: var(--accent); }
+  button.danger { color: var(--danger); }
+  button.icon { padding: 2px 7px; border-color: transparent; background: transparent; color: var(--muted); }
+  button.icon:hover { color: var(--danger); }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .dirty { color: var(--warn); font-weight: 600; font-size: 13px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; padding: 12px 20px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+  .card h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .card .big { font-size: 15px; font-weight: 600; }
+  .card .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .ok { color: var(--ok); } .bad { color: var(--danger); } .warn { color: var(--warn); }
+  .settings { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; font-size: 13px; }
+  .settings input[type=number] { width: 72px; }
+  input[type=text], input[type=number], input[type=search] {
+    font: inherit; color: var(--text); background: var(--input-bg); border: 1px solid var(--border);
+    border-radius: 5px; padding: 4px 6px; }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 4px 20px 10px; }
+  .toolbar input[type=search] { min-width: 220px; flex: 0 1 300px; }
+  .chip { border-radius: 999px; padding: 4px 10px; font-size: 13px; }
+  .chip.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .spacer { flex: 1; }
+  .table-wrap { margin: 0 20px 20px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+                overflow: auto; max-height: calc(100vh - 120px); }
+  table { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; }
+  th, td { border-bottom: 1px solid var(--border); padding: 4px 6px; text-align: left; vertical-align: middle; }
+  thead th { position: sticky; top: 0; background: var(--panel); z-index: 2; vertical-align: top; padding: 8px 6px; }
+  th.folder, td.folder { position: sticky; left: 0; background: var(--panel); z-index: 1; min-width: 240px; max-width: 320px;
+                         border-right: 1px solid var(--border); }
+  thead th.folder { z-index: 3; }
+  td.folder .name { font-family: ui-monospace, Consolas, monospace; font-size: 13px; word-break: break-all; }
+  tr.new td { background: var(--new-bg); }
+  tr.missing td { background: var(--missing-bg); }
+  td input[type=text] { width: 200px; }
+  td input[type=text]:placeholder-shown { border-style: dashed; }
+  .fe-head { display: flex; flex-direction: column; gap: 4px; width: 200px; }
+  .fe-head .row { display: flex; gap: 4px; align-items: center; }
+  .fe-head .fe-name { font-weight: 600; flex: 1; min-width: 0; }
+  .fe-head label { font-size: 12px; color: var(--muted); display: flex; gap: 4px; align-items: center; }
+  .fe-head input[type=text] { width: 100%; font-size: 12px; }
+  .badge { display: inline-block; font-size: 11px; border-radius: 4px; padding: 0 5px; margin-left: 6px;
+           border: 1px solid currentColor; vertical-align: 1px; }
+  .badge.new { color: var(--accent); } .badge.missing { color: var(--danger); } .badge.unmapped { color: var(--muted); }
+  .empty { padding: 30px; text-align: center; color: var(--muted); }
+  .banner { margin: 8px 20px 0; padding: 8px 12px; border-radius: 6px; background: var(--missing-bg);
+            border: 1px solid var(--danger); }
+  dialog { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+           max-width: min(900px, 92vw); width: 100%; }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  pre { white-space: pre-wrap; word-break: break-word; max-height: 60vh; overflow: auto; background: var(--bg);
+        padding: 10px; border-radius: 6px; font-size: 12px; }
+  .log { max-height: 160px; overflow: auto; font-size: 12px; }
+  .log div { padding: 2px 0; border-bottom: 1px dashed var(--border); overflow-wrap: anywhere; }
+  .log time { color: var(--muted); margin-right: 6px; }
+  #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg);
+           padding: 8px 14px; border-radius: 6px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; }
+  #toast.show { opacity: 1; }
+  .hint { color: var(--muted); font-size: 12px; }
+  @media (max-width: 640px) {
+    header, .toolbar, .cards, .paths { padding-left: 12px; padding-right: 12px; }
+    .table-wrap { margin: 0 12px 12px; }
+    th.folder, td.folder { min-width: 160px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>ROM Mapper</h1>
+  <div class="actions">
+    <span id="dirty" class="dirty" hidden>● Unsaved changes</span>
+    <button id="btnScan" title="Re-read the ROM folder for new or removed folders">Scan now</button>
+    <button id="btnSync" class="danger" title="Delete every link in the mapping folder and recreate them from the saved CSV">Resync all</button>
+    <button id="btnSave" disabled>Save</button>
+    <button id="btnSaveSync" class="primary" disabled>Save &amp; resync</button>
+  </div>
+</header>
+<div class="paths" id="paths"></div>
+<div id="banner"></div>
+
+<section class="cards">
+  <div class="card">
+    <h3>Last scan</h3>
+    <div class="big" id="scanBig">—</div>
+    <div class="sub" id="scanSub"></div>
+  </div>
+  <div class="card">
+    <h3>Last resync</h3>
+    <div class="big" id="syncBig">—</div>
+    <div class="sub" id="syncSub"></div>
+  </div>
+  <div class="card">
+    <h3>Schedule</h3>
+    <div class="settings">
+      <input type="checkbox" id="sScan"><label for="sScan">Scan every <input type="number" id="sScanMin" min="1"> min</label>
+      <input type="checkbox" id="sAuto"><label for="sAuto">Auto-add new folders to the CSV</label>
+      <input type="checkbox" id="sSync"><label for="sSync">Resync every <input type="number" id="sSyncHr" min="0.1" step="0.5"> h</label>
+    </div>
+    <div class="sub" id="nextRuns"></div>
+  </div>
+  <div class="card">
+    <h3>Activity</h3>
+    <div class="log" id="log"></div>
+  </div>
+</section>
+
+<div class="toolbar">
+  <input type="search" id="search" placeholder="Search folders or mappings…">
+  <div id="filters" class="actions"></div>
+  <span class="spacer"></span>
+  <button id="btnRemoveMissing" hidden class="danger">Remove missing rows</button>
+  <button id="btnAddFolder">+ Folder</button>
+  <button id="btnAddFe">+ Frontend</button>
+</div>
+<div class="hint" style="padding: 0 20px 6px">Tip: double-click an empty cell to fill it with the folder name. Blank cell = no link for that frontend.</div>
+
+<div class="table-wrap"><table id="grid"></table></div>
+
+<dialog id="outDialog">
+  <h3 style="margin-top:0">Last resync output</h3>
+  <pre id="outPre"></pre>
+  <form method="dialog" style="text-align:right"><button>Close</button></form>
+</dialog>
+<div id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const STATUS_LABEL = { mapped: "Mapped", unmapped: "Unmapped", new: "New", missing: "Missing" };
+
+let model = null;          // { frontends, rows, version, ... }
+let dirty = false;
+let filter = "all";
+let syncPoll = null;
+
+async function api(method, url, body) {
+  const res = await fetch(url, { method, headers: { "Content-Type": "application/json" },
+                                 body: body ? JSON.stringify(body) : undefined });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(data.error || res.statusText); e.status = res.status; e.data = data; throw e; }
+  return data;
+}
+
+function toast(msg, ms = 3000) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), ms);
+}
+
+function ago(iso) {
+  if (!iso) return "never";
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  return new Date(iso).toLocaleString();
+}
+function inFuture(ms) {
+  if (ms <= 0) return "due now";
+  const m = ms / 60000;
+  return m < 60 ? `in ${Math.round(m)} min` : `in ${(m / 60).toFixed(1)} h`;
+}
+
+function setDirty(v) {
+  dirty = v;
+  $("dirty").hidden = !v;
+  $("btnSave").disabled = !v;
+  $("btnSaveSync").disabled = !v;
+}
+
+// ------------------------------------------------------------- loading
+
+async function load({ keepEdits = false } = {}) {
+  const data = await api("GET", "/api/state");
+  if (keepEdits && dirty && model) {
+    Object.assign(model, { settings: data.settings, last_scan: data.last_scan, last_sync: data.last_sync,
+                           sync_running: data.sync_running, disk_error: data.disk_error });
+  } else {
+    model = data;
+    setDirty(false);
+    renderGrid();
+  }
+  renderMeta();
+  if (model.sync_running) watchSync();
+}
+
+function renderMeta() {
+  const p = model.paths;
+  $("paths").innerHTML = `CSV <code>${esc(p.csv)}</code> · ROMs <code>${esc(p.src)}</code> · Links <code>${esc(p.dest)}</code>`;
+  $("banner").innerHTML = model.disk_error ? `<div class="banner">${esc(model.disk_error)}</div>` : "";
+
+  const sc = model.last_scan;
+  if (sc) {
+    $("scanBig").innerHTML = sc.ok ? `<span class="ok">✓</span> ${esc(ago(sc.time))}` : `<span class="bad">✗ failed</span> ${esc(ago(sc.time))}`;
+    $("scanSub").textContent = sc.ok
+      ? `${sc.total} folders · ${sc.new.length} new${sc.added ? ` (${sc.added} added)` : ""} · ${sc.missing.length} missing`
+      : sc.error;
+  }
+  const sy = model.last_sync;
+  if (model.sync_running) {
+    $("syncBig").innerHTML = `<span class="warn">⟳ running…</span>`;
+  } else if (sy) {
+    $("syncBig").innerHTML = (sy.ok ? `<span class="ok">✓</span> ` : `<span class="bad">✗ failed</span> `) + esc(ago(sy.time));
+  }
+  if (sy) $("syncSub").innerHTML = `${esc(sy.trigger)} · ${sy.seconds}s · <a href="#" id="viewOut">view output</a>`;
+  const v = $("viewOut"); if (v) v.onclick = (e) => { e.preventDefault(); $("outPre").textContent = model.last_sync.output || "(no output)"; $("outDialog").showModal(); };
+  $("btnSync").disabled = model.sync_running;
+
+  const s = model.settings;
+  $("sScan").checked = s.scan_enabled; $("sScanMin").value = s.scan_interval_minutes;
+  $("sAuto").checked = s.auto_add_new;
+  $("sSync").checked = s.sync_enabled; $("sSyncHr").value = s.sync_interval_hours;
+  const next = [];
+  if (s.scan_enabled) next.push(`next scan ${inFuture(new Date(sc?.time || 0).getTime() + s.scan_interval_minutes * 60000 - Date.now())}`);
+  if (s.sync_enabled) next.push(`next resync ${inFuture(new Date(sy?.time || 0).getTime() + s.sync_interval_hours * 3600000 - Date.now())}`);
+  $("nextRuns").textContent = next.join(" · ") || "Schedules are off";
+}
+
+async function loadActivity() {
+  const items = await api("GET", "/api/activity").catch(() => []);
+  $("log").innerHTML = items.map(i => `<div><time>${esc(new Date(i.time).toLocaleTimeString())}</time>${esc(i.msg)}</div>`).join("")
+    || `<div class="hint">Nothing yet</div>`;
+}
+
+// ------------------------------------------------------------- grid
+
+function renderGrid() {
+  const fes = model.frontends;
+  let head = `<thead><tr><th class="folder">Folder</th>`;
+  fes.forEach((f, i) => {
+    head += `<th><div class="fe-head">
+      <div class="row"><input type="text" class="fe-name" data-fe="${i}" data-k="name" value="${esc(f.name)}" title="Frontend / output folder name">
+        <button class="icon" data-delfe="${i}" title="Remove this frontend column">✕</button></div>
+      <label><input type="checkbox" data-fe="${i}" data-k="media_toggle" ${f.media_toggle === "1" ? "checked" : ""}> link media/ folders</label>
+      <input type="text" data-fe="${i}" data-k="media_location" value="${esc(f.media_location)}" placeholder="media location (MEDIA_FULL)" ${f.media_toggle === "1" ? "" : "hidden"}>
+    </div></th>`;
+  });
+  head += `<th></th></tr></thead>`;
+
+  let body = "<tbody>";
+  model.rows.forEach((r, ri) => {
+    body += `<tr class="${r.status}" data-ri="${ri}"><td class="folder"><span class="name">${esc(r.folder)}</span>` +
+      (r.status !== "mapped" ? `<span class="badge ${r.status}">${STATUS_LABEL[r.status]}</span>` : "") + `</td>`;
+    fes.forEach((f, fi) => {
+      body += `<td><input type="text" data-ri="${ri}" data-fi="${fi}" value="${esc(r.values[fi])}" placeholder="—"></td>`;
+    });
+    body += `<td><button class="icon" data-delrow="${ri}" title="Remove this row from the CSV">✕</button></td></tr>`;
+  });
+  body += "</tbody>";
+  $("grid").innerHTML = model.rows.length || fes.length ? head + body
+    : `<tbody><tr><td class="empty">No folders yet. Click “Scan now” or “+ Folder”.</td></tr></tbody>`;
+  applyFilter();
+}
+
+function rowStatus(r) {
+  if (r.status === "missing" || r.status === "new") return r.status;
+  return r.values.some(v => v) ? "mapped" : "unmapped";
+}
+
+function applyFilter({ recountOnly = false } = {}) {
+  const q = $("search").value.trim().toLowerCase();
+  const counts = { all: 0, mapped: 0, unmapped: 0, new: 0, missing: 0 };
+  document.querySelectorAll("#grid tbody tr[data-ri]").forEach(tr => {
+    const r = model.rows[+tr.dataset.ri];
+    const st = rowStatus(r);
+    counts.all++; counts[st]++;
+    const matchQ = !q || r.folder.toLowerCase().includes(q) || r.values.some(v => v.toLowerCase().includes(q));
+    if (!recountOnly) tr.hidden = !(matchQ && (filter === "all" || filter === st));
+  });
+  $("filters").innerHTML = ["all", "mapped", "unmapped", "new", "missing"].map(k =>
+    `<button class="chip ${filter === k ? "active" : ""}" data-filter="${k}">${k === "all" ? "All" : STATUS_LABEL[k]} ${counts[k]}</button>`).join("");
+  $("btnRemoveMissing").hidden = counts.missing === 0;
+}
+
+$("grid").addEventListener("input", (e) => {
+  const t = e.target;
+  if (t.dataset.fi !== undefined) {
+    const r = model.rows[+t.dataset.ri];
+    r.values[+t.dataset.fi] = t.value;
+    if (r.status !== "missing" && r.status !== "new") r.status = rowStatus(r);
+    setDirty(true);
+  } else if (t.dataset.fe !== undefined) {
+    const f = model.frontends[+t.dataset.fe];
+    if (t.type === "checkbox") {
+      f.media_toggle = t.checked ? "1" : "0";
+      t.closest(".fe-head").querySelector('[data-k="media_location"]').hidden = !t.checked;
+    } else f[t.dataset.k] = t.value;
+    setDirty(true);
+  }
+});
+// Editing only updates the counts; rows stay put until the filter/search changes.
+$("grid").addEventListener("change", (e) => { if (e.target.dataset.fi !== undefined) applyFilter({ recountOnly: true }); });
+$("grid").addEventListener("dblclick", (e) => {
+  const t = e.target;
+  if (t.dataset.fi !== undefined && !t.value) {
+    t.value = model.rows[+t.dataset.ri].folder;
+    t.dispatchEvent(new Event("input", { bubbles: true }));
+    applyFilter({ recountOnly: true });
+  }
+});
+$("grid").addEventListener("click", (e) => {
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.dataset.delrow !== undefined) {
+    const r = model.rows[+t.dataset.delrow];
+    if (r.values.some(v => v) && !confirm(`Remove "${r.folder}" and its mappings from the CSV?`)) return;
+    model.rows.splice(+t.dataset.delrow, 1); setDirty(true); renderGrid();
+  } else if (t.dataset.delfe !== undefined) {
+    const i = +t.dataset.delfe;
+    if (!confirm(`Remove the "${model.frontends[i].name}" column and all its mappings?`)) return;
+    model.frontends.splice(i, 1); model.rows.forEach(r => r.values.splice(i, 1)); setDirty(true); renderGrid();
+  }
+});
+$("filters").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-filter]"); if (!b) return;
+  filter = b.dataset.filter; applyFilter();
+});
+$("search").addEventListener("input", applyFilter);
+
+$("btnAddFolder").onclick = () => {
+  const name = prompt("Folder name (as it is / will be under the ROM folder):");
+  if (!name || !name.trim()) return;
+  if (model.rows.some(r => r.folder === name.trim())) return toast("That folder is already in the list.");
+  model.rows.push({ folder: name.trim(), values: model.frontends.map(() => ""), status: "unmapped" });
+  setDirty(true); renderGrid();
+  $("search").value = name.trim(); applyFilter();
+};
+$("btnAddFe").onclick = () => {
+  const name = prompt("New frontend name (becomes a folder under the mapping folder):");
+  if (!name || !name.trim()) return;
+  if (model.frontends.some(f => f.name === name.trim())) return toast("That frontend already exists.");
+  model.frontends.push({ name: name.trim(), media_toggle: "0", media_location: "" });
+  model.rows.forEach(r => r.values.push(""));
+  setDirty(true); renderGrid();
+  document.querySelector(".table-wrap").scrollLeft = 1e6;
+};
+$("btnRemoveMissing").onclick = () => {
+  const n = model.rows.filter(r => r.status === "missing").length;
+  if (!confirm(`Remove ${n} row(s) whose folder no longer exists on disk?`)) return;
+  model.rows = model.rows.filter(r => r.status !== "missing"); setDirty(true); renderGrid();
+};
+
+// ------------------------------------------------------------- actions
+
+async function save(resync) {
+  const payload = { version: model.version, resync,
+    frontends: model.frontends, rows: model.rows.map(r => ({ folder: r.folder, values: r.values })) };
+  try {
+    let res;
+    try { res = await api("PUT", "/api/mapping", payload); }
+    catch (e) {
+      if (e.status !== 409) throw e;
+      if (!confirm("The CSV changed on the server since you loaded it (for example a scheduled scan added folders).\n\nOverwrite it with your version? New folders will show up again on the next scan.")) return;
+      res = await api("PUT", "/api/mapping", { ...payload, force: true });
+    }
+    toast(resync ? "Saved. Resync started." : "Saved.");
+    setDirty(false);
+    await load();
+    if (res.sync_started) watchSync();
+  } catch (e) {
+    alert(e.message + (e.data?.details ? "\n\n• " + e.data.details.join("\n• ") : ""));
+  }
+  loadActivity();
+}
+$("btnSave").onclick = () => save(false);
+$("btnSaveSync").onclick = () => save(true);
+
+$("btnScan").onclick = async () => {
+  if (dirty && !confirm("You have unsaved changes. Scanning reloads the table and discards them. Continue?")) return;
+  $("btnScan").disabled = true;
+  try {
+    const r = await api("POST", "/api/scan");
+    toast(r.ok ? `Scan done: ${r.new.length} new, ${r.missing.length} missing` : `Scan failed: ${r.error}`);
+    await load();
+  } catch (e) { alert(e.message); }
+  $("btnScan").disabled = false;
+  loadActivity();
+};
+
+$("btnSync").onclick = async () => {
+  const msg = dirty ? "\n\nNote: you have UNSAVED changes. Resync uses the saved CSV. Use “Save & resync” to include them." : "";
+  if (!confirm(`Delete every link under ${model.paths.dest} and rebuild them from the saved CSV?${msg}`)) return;
+  try { await api("POST", "/api/sync"); toast("Resync started."); watchSync(); }
+  catch (e) { alert(e.message); }
+};
+
+function watchSync() {
+  if (syncPoll) return;
+  model.sync_running = true; renderMeta();
+  syncPoll = setInterval(async () => {
+    const s = await api("GET", "/api/sync").catch(() => null);
+    if (!s || s.running) return;
+    clearInterval(syncPoll); syncPoll = null;
+    model.sync_running = false; model.last_sync = s.last_sync; renderMeta(); loadActivity();
+    toast(s.last_sync?.ok ? "Resync finished." : "Resync FAILED. See output.", 5000);
+  }, 2000);
+}
+
+async function saveSettings() {
+  const body = { scan_enabled: $("sScan").checked, scan_interval_minutes: $("sScanMin").value,
+                 auto_add_new: $("sAuto").checked, sync_enabled: $("sSync").checked, sync_interval_hours: $("sSyncHr").value };
+  try { const r = await api("PUT", "/api/settings", body); model.settings = r.settings; renderMeta(); toast("Schedule saved."); }
+  catch (e) { alert(e.message); }
+  loadActivity();
+}
+["sScan", "sAuto", "sSync", "sScanMin", "sSyncHr"].forEach(id => $(id).addEventListener("change", saveSettings));
+
+window.addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+// Refresh periodically to pick up scheduled scans/resyncs (keeps your edits if you have any).
+setInterval(() => { load({ keepEdits: true }).catch(() => {}); loadActivity(); }, 30000);
+
+load().catch(e => { $("banner").innerHTML = `<div class="banner">Failed to load: ${esc(e.message)}</div>`; });
+loadActivity();
+</script>
+</body>
+</html>
