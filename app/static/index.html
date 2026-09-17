@@ -35,14 +35,17 @@
   button.icon:hover { color: var(--danger); }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .dirty { color: var(--warn); font-weight: 600; font-size: 13px; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; padding: 12px 20px; }
-  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
-  .card h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-  .card .big { font-size: 15px; font-weight: 600; }
+  .cards { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1.2fr);
+           gap: 10px; padding: 8px 20px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; min-width: 0; }
+  .card h3 { margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .card .big { font-size: 14px; font-weight: 600; }
   .card .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .card .sub a { white-space: nowrap; color: var(--accent); }
   .ok { color: var(--ok); } .bad { color: var(--danger); } .warn { color: var(--warn); }
-  .settings { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; font-size: 13px; }
-  .settings input[type=number] { width: 72px; }
+  .settings { display: grid; grid-template-columns: auto 1fr; gap: 2px 6px; align-items: center; font-size: 13px; }
+  .settings input { margin: 0; }
+  .settings input[type=number] { width: 54px; padding: 1px 4px; }
   input[type=text], input[type=number], input[type=search] {
     font: inherit; color: var(--text); background: var(--input-bg); border: 1px solid var(--border);
     border-radius: 5px; padding: 4px 6px; }
@@ -81,13 +84,15 @@
   dialog::backdrop { background: rgba(0,0,0,.45); }
   pre { white-space: pre-wrap; word-break: break-word; max-height: 60vh; overflow: auto; background: var(--bg);
         padding: 10px; border-radius: 6px; font-size: 12px; }
-  .log { max-height: 160px; overflow: auto; font-size: 12px; }
+  .log { height: 62px; overflow: auto; font-size: 12px; }
   .log div { padding: 2px 0; border-bottom: 1px dashed var(--border); overflow-wrap: anywhere; }
   .log time { color: var(--muted); margin-right: 6px; }
   #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg);
            padding: 8px 14px; border-radius: 6px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; }
   #toast.show { opacity: 1; }
   .hint { color: var(--muted); font-size: 12px; }
+  @media (max-width: 900px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 520px) { .cards { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 640px) {
     header, .toolbar, .cards, .paths { padding-left: 12px; padding-right: 12px; }
     .table-wrap { margin: 0 12px 12px; }
@@ -124,7 +129,7 @@
     <h3>Schedule</h3>
     <div class="settings">
       <input type="checkbox" id="sScan"><label for="sScan">Scan every <input type="number" id="sScanMin" min="1"> min</label>
-      <input type="checkbox" id="sAuto"><label for="sAuto">Auto-add new folders to the CSV</label>
+      <input type="checkbox" id="sAuto"><label for="sAuto">Auto-add new folders</label>
       <input type="checkbox" id="sSync"><label for="sSync">Resync every <input type="number" id="sSyncHr" min="0.1" step="0.5"> h</label>
     </div>
     <div class="sub" id="nextRuns"></div>
