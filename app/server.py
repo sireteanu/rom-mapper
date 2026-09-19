@@ -34,7 +34,8 @@ STATE_FILE = os.environ.get(
 SYNC_SCRIPT = os.environ.get("SYNC_SCRIPT", "/usr/local/bin/rom-mapper.sh")
 BASH_BIN = os.environ.get("BASH_BIN") or shutil.which("bash") or "bash"
 PORT = int(os.environ.get("PORT", "8085"))
-# RomM: the lolroms download folder (e.g. Rom Sync's), mounted at the same path as on the host.
+# RomM: the download folder(s) to map (e.g. Rom Sync's lolroms folder), mounted at the same path as
+# on the host; several separated by ";" (first = preferred when two give the same platform).
 # Can also be set in the UI; "" = RomM section not set up yet.
 ROMM_SOURCE = os.environ.get("ROMM_SOURCE", "")
 CONFIG_DIR = os.path.dirname(INPUT_CSV) or "."
@@ -378,7 +379,24 @@ _romm_cache = {"key": None, "at": 0.0, "folders": None}
 
 
 def romm_saved():
-    return romm.read_backup(CONFIG_DIR)
+    """romm-mapper.json, converted from the one-folder format (Rom Sync's, and the first version
+    here): "source" -> "sources", and folder choices get the folder's name in front
+    ("Konami - Picno" -> "lolroms/Konami - Picno")."""
+    cur = romm.read_backup(CONFIG_DIR)
+    if "sources" in cur:
+        return cur
+    old = (cur.pop("source", "") or "").rstrip("/")
+    env = [p.strip().rstrip("/") for p in ROMM_SOURCE.split(";") if p.strip()]
+    sources = [old] if old else env
+    if cur.get("links_dir") and not os.path.isabs(cur["links_dir"]):
+        cur.pop("links_dir")
+    if cur.get("map") and sources:
+        root = os.path.relpath(sources[0], romm_links_dir(cur, sources)).replace(os.sep, "/")
+        cur["map"] = {(f"{root}/{k}" if k else root): v for k, v in cur["map"].items()}
+    cur["sources"] = sources
+    if cur.get("map") or old:
+        romm_save(cur)
+    return cur
 
 
 def romm_save(cur):
@@ -387,40 +405,67 @@ def romm_save(cur):
     _romm_cache["key"] = None
 
 
-def romm_source(saved=None):
-    saved = romm_saved() if saved is None else saved
-    return (saved.get("source") or ROMM_SOURCE or "").rstrip("/") or ""
+def romm_links_dir(saved, sources):
+    """Where the platform links go: the setting, else the folder that holds all download folders."""
+    if saved.get("links_dir"):
+        return saved["links_dir"]
+    if not sources:
+        return ""
+    return os.path.commonpath([os.path.dirname(os.path.abspath(p)) for p in sources])
+
+
+def romm_check(sources, links_dir):
+    """Problems that stop the RomM section from working, or None."""
+    if not sources:
+        return "Add a download folder first."
+    for p in sources:
+        if not os.path.isdir(p):
+            return f"Folder not found: {p} (is it mounted into the container at the same path?)"
+        r = os.path.relpath(p, links_dir)
+        if r == "." or r.startswith(".."):
+            return f"{p} is not inside the links folder {links_dir} - change the links folder."
+    for a in sources:
+        for b in sources:
+            if a != b and (b + "/").startswith(a + "/"):
+                return f"{b} is inside {a} - list only one of them."
+    names = [os.path.relpath(p, links_dir) for p in sources]
+    if len(set(names)) != len(names):
+        return "The same folder is listed twice."
+    return None
 
 
 def romm_mapping(fresh=False):
-    """-> (Mapping or None, source, error). Folder counts are cached for 30 s (walking a big
-    library takes a moment)."""
+    """-> (Mapping or None, saved settings, error). Folder counts are cached for 30 s (walking a
+    big library takes a moment)."""
     saved = romm_saved()
-    source = romm_source(saved)
-    if not source:
-        return None, source, "Set the lolroms download folder first."
-    if not os.path.isdir(source):
-        return None, source, f"Folder not found: {source} (is it mounted into the container at the same path?)"
+    sources = [p.rstrip("/") for p in saved.get("sources") or []]
+    links_dir = romm_links_dir(saved, sources)
+    error = romm_check(sources, links_dir)
+    if error:
+        return None, saved, error
     c = _romm_cache
-    if fresh or c["key"] != source or time.time() - c["at"] > 30:
-        c.update(key=source, at=time.time(), folders=romm.folders_from_disk(source))
-    return romm.Mapping(c["folders"], romm.options_from({"romm": saved}), source), source, None
+    key = (tuple(sources), links_dir)
+    if fresh or c["key"] != key or time.time() - c["at"] > 30:
+        c.update(key=key, at=time.time(), folders=romm.folders_from_roots(links_dir, sources))
+    folders, roots = c["folders"]
+    return romm.Mapping(folders, romm.options_from({"romm": saved}), links_dir, roots), saved, None
 
 
 def romm_view(fresh=False):
-    m, source, error = romm_mapping(fresh)
-    saved = romm_saved()
+    m, saved, error = romm_mapping(fresh)
     opt = romm.options_from({"romm": saved})
+    sources = saved.get("sources") or []
     slugs = [{"slug": k, "name": v[0], "family": v[1], "kind": v[2]} for k, v in sorted(romm.PLATFORMS.items())]
-    base = {"source": source, "source_env": ROMM_SOURCE, "error": error, "slugs": slugs,
+    base = {"sources": sources, "error": error, "slugs": slugs,
+            "links_dir": romm_links_dir(saved, sources),
             "options": {**{k: opt[k] for k in ("variants", "layout", "links_dir", "keep_links")},
                         "romm_folder": romm.Mapping({"": (0, 0)}, opt).romm_folder()}}
     if m is None:
         return {**base, "rows": [], "platforms": [], "firmware": [], "warnings": [], "summary":
                 {"platforms": 0, "firmware": 0, "files": 0}, "links": {}, "outputs": {"compose": "", "config": ""}}
     return {**base,
-            "links": {"dir": m.links_dir, "download_dir": m.data_dir, "inside": m.data_in_links(),
-                      "targets": m.link_targets()},
+            "links": {"dir": m.links_dir, "roots": m.roots, "targets": m.link_targets()},
+            "conflicts": m.conflicts,
             "rows": m.rows(), "platforms": m.platforms, "firmware": m.firmware,
             "warnings": m.warnings(), "summary": m.summary(),
             "outputs": {"compose": m.compose(), "config": m.config_yml()}}
@@ -428,7 +473,7 @@ def romm_view(fresh=False):
 
 def romm_apply_links(trigger):
     with romm_lock:
-        m, source, error = romm_mapping(fresh=True)
+        m, _saved, error = romm_mapping(fresh=True)
         if m is None:
             raise RuntimeError(error)
         res = romm.apply_links(m)
@@ -457,7 +502,7 @@ def scheduler_loop():
             last_sync = parse_iso((state["last_sync"] or {}).get("time"))
             if s["scan_enabled"] and now - last_scan >= max(1, float(s["scan_interval_minutes"])) * 60:
                 run_scan("scheduled")
-                if romm_saved().get("keep_links") and romm_source():
+                if romm_saved().get("keep_links") and romm_saved().get("sources"):
                     try:
                         romm_apply_links("scheduled")
                     except Exception as e:  # noqa: BLE001
@@ -551,19 +596,30 @@ def api_romm_options():
     body = request.get_json(force=True) or {}
     with romm_lock:
         cur = romm_saved()
-        for k in ("romm_folder", "links_dir", "source"):
+        for k in ("romm_folder", "links_dir"):
             if k in body:
                 v = str(body[k] or "").strip().rstrip("/")
-                if k in ("links_dir", "source") and v and not v.startswith("/"):
-                    return jsonify({"error": f"{k.replace('_', ' ')} must be a full path starting with /"}), 400
+                if k == "links_dir" and v and not v.startswith("/"):
+                    return jsonify({"error": "The links folder must be a full path starting with /"}), 400
                 cur[k] = v
+        if "sources" in body:
+            sources = []
+            for v in body["sources"] or []:
+                v = str(v or "").strip().rstrip("/")
+                if not v:
+                    continue
+                if not v.startswith("/"):
+                    return jsonify({"error": f"{v}: a download folder must be a full path starting with /"}), 400
+                if v not in sources:
+                    sources.append(v)
+            cur["sources"] = sources
         for k in ("variants", "keep_links"):
             if k in body:
                 cur[k] = bool(body[k])
         if body.get("layout") in ("category", "folders"):
             cur["layout"] = body["layout"]
         romm_save(cur)
-    return jsonify(romm_view(fresh="source" in body))
+    return jsonify(romm_view(fresh="sources" in body))
 
 
 @app.put("/api/romm/map")

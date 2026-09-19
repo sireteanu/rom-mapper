@@ -208,13 +208,20 @@ def suggest(name: str) -> Optional[str]:
 class Mapping:
     """Resolve every folder to a RomM role, then render the links and config.yml.
 
-    `folders` is {path: (files directly in it, of which on disk)}; every path's ancestors
-    must be present (folders_from_disk guarantees that)."""
+    Several download folders ("roots", e.g. lolroms and rommer) can feed RomM. `folders` is
+    {path: (files directly in it, of which on disk)} with paths relative to the links folder, so
+    they start with a root ("lolroms/Nintendo/Super Famicom", "rommer/snes"); every path's
+    ancestors must be present (folders_from_roots guarantees that). `roots` is the list of roots
+    in priority order: when two roots give the same platform, the first one is linked and the
+    other is reported as a conflict (exclude it, or change the order). `links_dir` is the folder
+    that holds the roots and gets the platform links."""
 
-    def __init__(self, folders: dict, options: Optional[dict] = None, data_dir: str = ""):
+    def __init__(self, folders: dict, options: Optional[dict] = None, links_dir: str = "",
+                 roots: Optional[list] = None):
         self.folders = folders
         self.opt = dict(DEFAULT_OPTIONS, **(options or {}))
-        self.data_dir = os.path.abspath(data_dir) if data_dir else ""
+        self.roots = list(roots or [])
+        self.base = os.path.abspath(links_dir) if links_dir else ""
         self.user = {k: v for k, v in (self.opt.get("map") or {}).items() if v}
         self.res: dict = {}          # path -> dict(kind, slug, source)
         self._resolve()
@@ -227,10 +234,34 @@ class Mapping:
             if not path:
                 continue
             up = self.res.get(parent_of(path))
-            rule = RULES.get(path, "")
-            self.auto[path] = self._decide(path, rule, "rule", up)
+            if self.root_of(path) == path or self.root_of(path) is None:
+                # a download folder itself (or a folder above it): no platform of its own
+                self.auto[path] = self.res[path] = self._decide(path, self.user.get(path, ""), "yours", None)
+                continue
+            rule = RULES.get(self.inner(path), "")
             mine = self.user.get(path)
+            if up and (up.get("excluded") or up.get("excluded_tree")) and not mine:
+                # inside a folder you excluded: left out too, whatever the built-in rules say
+                self.auto[path] = self.res[path] = {"kind": SKIP, "slug": "", "source": "yours",
+                                                    "excluded_by": up.get("excluded_by") or parent_of(path),
+                                                    "excluded": False, "inherited": True}
+                self.res[path]["excluded_tree"] = True
+                continue
+            self.auto[path] = self._decide(path, rule, "rule", up)
             self.res[path] = self._decide(path, mine, "yours", up) if mine else self.auto[path]
+
+    def root_of(self, path: str) -> Optional[str]:
+        """The download folder (root) a path belongs to, or None."""
+        for r in self.roots:
+            if path == r or path.startswith(r + "/"):
+                return r
+        return None
+
+    def inner(self, path: str) -> str:
+        """The path inside its root ("lolroms/Nintendo/Super Famicom" -> "Nintendo/Super Famicom"),
+        which is what the built-in lolroms rules use."""
+        r = self.root_of(path)
+        return path[len(r) + 1:] if r and path != r else ""
 
     def _decide(self, path: str, action: str, source: str, up: Optional[dict]) -> dict:
         r = {"kind": UNMAPPED, "slug": "", "source": source if action else "auto"}
@@ -255,6 +286,10 @@ class Mapping:
                 r.update(kind=MERGE, slug=up["slug"])
         elif up and up["kind"] in (SKIP, BIOS):
             r.update(kind=up["kind"], slug=up["slug"])
+        elif name_of(path) in SLUGS and "/" not in self.inner(path):
+            # a folder named exactly like a RomM platform right inside a download folder (a
+            # RomM-style collection: rommer/snes, rommer/psx)
+            r.update(kind=PLATFORM, slug=name_of(path))
         return r
 
     @staticmethod
@@ -270,8 +305,15 @@ class Mapping:
         return ""
 
     def excluded_names(self) -> list:
-        """Folder names you marked "exclude": always written to RomM's exclude rules."""
-        return sorted({name_of(p) for p, r in self.res.items() if r.get("excluded")}, key=str.casefold)
+        """Folder names you marked "exclude" inside a platform RomM reads: written to RomM's
+        exclude rules. (A folder that isn't inside a linked platform is simply not linked.)"""
+        out = set()
+        for p, r in self.res.items():
+            if r.get("excluded"):
+                up = self.res.get(parent_of(p))
+                if up and up["kind"] in (PLATFORM, MERGE):
+                    out.add(name_of(p))
+        return sorted(out, key=str.casefold)
 
     def _counts(self, path):
         files, have = self.folders.get(path, (0, 0))
@@ -286,13 +328,26 @@ class Mapping:
         games, fw = {}, {}
         for path, r in self.res.items():
             if r["kind"] in (PLATFORM, MERGE) and self._uses(path):
-                games.setdefault(r["slug"], []).append(path)
+                games.setdefault(r["slug"], {}).setdefault(self.root_of(path), []).append(path)
             elif r["kind"] == BIOS and self._uses(path):
                 fw.setdefault(r["slug"], []).append(path)
+        order = {r: i for i, r in enumerate(self.roots)}
+        self.conflicts = []           # [{slug, root, folders, winner, winner_folders}]
+        self.lost: dict = {}          # path -> root whose folder RomM gets instead
+        chosen = {}
+        for slug, by_root in games.items():
+            ranked = sorted(by_root, key=lambda r: order.get(r, 99))
+            win = ranked[0]
+            chosen[slug] = by_root[win]
+            for other in ranked[1:]:
+                self.conflicts.append({"slug": slug, "root": other, "folders": sorted(by_root[other]),
+                                       "winner": win, "winner_folders": sorted(by_root[win])})
+                for p in by_root[other]:
+                    self.lost[p] = win
         wild = self.opt.get("layout", "category") == "category"
         self.platforms = []
-        for slug in sorted(games):
-            paths = sorted(games[slug])
+        for slug in sorted(chosen):
+            paths = sorted(chosen[slug])
             mount = common_dir(paths)
             used = set(paths)
             # every folder on the way from the mount to a used folder is a grouping level
@@ -365,13 +420,18 @@ class Mapping:
         for path in sorted(self.res, key=str.casefold):
             r = self.res[path]
             files, have = self._counts(path)
-            if not files and path not in self.user and path not in RULES:
+            if not files and path not in self.user and self.inner(path) not in RULES and path not in self.roots:
                 continue
             row = {"path": path, "files": files, "synced": have, "kind": r["kind"], "slug": r["slug"],
-                   "excluded": bool(r.get("excluded")),
+                   "excluded": bool(r.get("excluded")), "root": self.root_of(path),
                    "value": self.choice(r), "auto": self.choice(self.auto[path]),
-                   "source": r["source"], "action": self.user.get(path, ""), "rule": RULES.get(path, ""),
-                   "used": r["kind"] in (PLATFORM, MERGE, BIOS) and self._uses(path)}
+                   "source": r["source"], "action": self.user.get(path, ""),
+                   "rule": RULES.get(self.inner(path), ""),
+                   "used": r["kind"] in (PLATFORM, MERGE, BIOS) and self._uses(path) and path not in self.lost}
+            if path in self.lost:
+                row["conflict"] = self.lost[path]
+            if r.get("excluded_tree"):
+                row["excluded_by"] = r.get("excluded_by")
             if r["kind"] in (PLATFORM, MERGE) and r["slug"] not in SLUGS:
                 row["custom"] = True
             out.append(row)
@@ -396,10 +456,10 @@ class Mapping:
             if f["ignored"]:
                 w.append(f"Firmware for {f['slug']} comes from {f['mount']}; also found in "
                          + ", ".join(f["ignored"]) + " (left out - RomM reads one firmware folder per platform).")
-        if self.data_in_links() is None:
-            w.append("Platform links need the download folder inside the links folder (for example "
-                     "downloads in /romm/lolroms and links in /romm) - change the links folder or "
-                     "the download folder.")
+        for c in self.conflicts:
+            w.append(f"{c['slug']} is in more than one download folder: RomM gets "
+                     f"{', '.join(c['winner_folders'])} ({c['winner']} is first in the list), not "
+                     f"{', '.join(c['folders'])}. Exclude the one you don't want, or change the order.")
         if self.firmware:
             w.append("Firmware isn't linked (RomM's bios folder is separate): copy these to RomM's bios "
                      "folder: " + ", ".join(f["mount"] for f in self.firmware))
@@ -408,23 +468,15 @@ class Mapping:
     # ------------------------------------------------------------------ platform links
     @property
     def links_dir(self) -> str:
-        d = self.opt.get("links_dir") or (os.path.dirname(self.data_dir) if self.data_dir else "")
-        return os.path.abspath(d) if d else ""
+        return self.base
 
     def data_in_links(self) -> Optional[str]:
-        """The download folder relative to the links folder ("lolroms"), or None if it isn't
-        inside it (then RomM, which only sees the links folder, couldn't follow the links)."""
-        if not (self.data_dir and self.links_dir):
-            return None
-        r = os.path.relpath(self.data_dir, self.links_dir)
-        return None if r == "." or r.startswith("..") or os.path.isabs(r) else r.replace(os.sep, "/")
+        """The first download folder, relative to the links folder (used in the help texts)."""
+        return self.roots[0] if self.roots else None
 
     def link_targets(self) -> dict:
         """{platform slug: relative link target}, e.g. {"snes": "lolroms/Nintendo/Super Famicom"}"""
-        inside = self.data_in_links()
-        if inside is None:
-            return {}
-        return {p["slug"]: inside + ("/" + p["mount"] if p["mount"] else "") for p in self.platforms}
+        return {p["slug"]: p["mount"] for p in self.platforms}
 
     def romm_folder(self) -> str:
         """The "RomM folder" setting: where the lolroms downloads appear inside RomM's container
@@ -441,7 +493,7 @@ class Mapping:
         """The one volume line RomM's compose file needs: the links folder as its roms folder."""
         return ("    volumes:\n"
                 "      # for the RomM service: replace its .../romm/library/roms line with\n"
-                f"      # the server folder that holds the \"{self.data_in_links() or 'downloads'}\" folder and its platform links.\n"
+                f"      # the server folder that holds the download folders ({', '.join(self.roots) or 'downloads'}) and the platform links.\n"
                 f"      - {json.dumps('/path/on/your/server:' + self.library() + '/roms', ensure_ascii=False)}\n")
 
     def config_yml(self) -> str:
@@ -450,10 +502,10 @@ class Mapping:
                  "# (keep your other settings). Platforms: ROM Mapper's links in roms/<platform>.", ""]
         names = sorted({n for p in self.platforms for n in p["exclude"]} | set(self.excluded_names()),
                        key=str.casefold)
-        inside = self.data_in_links()
-        if inside:
-            lines += ["exclude:", "  # the download folder itself is not a platform (its platforms are linked)",
-                      "  platforms:", f"    - {q(inside.split('/')[0])}"]
+        tops = sorted({r.split("/")[0] for r in self.roots}, key=str.casefold)
+        if tops:
+            lines += ["exclude:", "  # the download folders themselves are not platforms (their platforms are linked)",
+                      "  platforms:"] + [f"    - {q(t)}" for t in tops]
             if names:
                 lines += ["  roms:", "    multi_file:",
                           "      # subfolders that are another platform, firmware or not games",
@@ -510,16 +562,15 @@ def apply_links(m: "Mapping") -> dict:
     """Create / update / remove the platform folder links for links mode. Only links that point
     into the download folder are ever changed or removed; real folders are never touched."""
     res = {"created": [], "updated": [], "removed": [], "kept": 0, "skipped": [], "errors": []}
-    inside = m.data_in_links()
-    if inside is None:
-        res["errors"].append("the download folder is not inside the links folder")
+    if not m.roots:
+        res["errors"].append("no download folder is set")
         return res
     links_dir = m.links_dir
     want = m.link_targets()
 
     def ours(target: str) -> bool:
         t = target.replace(os.sep, "/")
-        return not os.path.isabs(t) and (t == inside or t.startswith(inside + "/"))
+        return not os.path.isabs(t) and any(t == r or t.startswith(r + "/") for r in m.roots)
 
     for name, target in sorted(want.items()):
         path = os.path.join(links_dir, name)
@@ -568,6 +619,22 @@ def describe_links(res: dict) -> str:
 
 
 IGNORED_FILES = {"thumbs.db", "desktop.ini"}
+
+
+def folders_from_roots(links_dir: str, sources: list) -> tuple:
+    """Read every download folder -> ({path relative to links_dir: (files, files)}, [roots]).
+    Folders above a root (e.g. "sets" for links_dir/sets/rommer) are added with no files."""
+    out = {"": (0, 0)}
+    roots = []
+    for src in sources:
+        root = os.path.relpath(os.path.abspath(src), os.path.abspath(links_dir)).replace(os.sep, "/")
+        roots.append(root)
+        parts = root.split("/")
+        for i in range(1, len(parts)):
+            out.setdefault("/".join(parts[:i]), (0, 0))
+        for p, n in folders_from_disk(src).items():
+            out[root + ("/" + p if p else "")] = n
+    return out, roots
 
 
 def folders_from_disk(source: str) -> dict:
