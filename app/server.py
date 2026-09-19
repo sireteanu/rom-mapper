@@ -3,6 +3,10 @@
 Reads/writes the same Rom_Mapping.csv the rom-mapper.sh script uses, scans the
 ROM source folder for new/removed folders, and runs the sync script on demand
 or on a schedule.
+
+RomM (romm.py): maps a lolroms download folder (nested, e.g. Nintendo/Super Famicom) to RomM
+platforms with relative platform links next to it plus a generated config.yml. Settings and folder
+choices live in romm-mapper.json next to the CSV - the same file Rom Sync used.
 """
 
 import hashlib
@@ -18,6 +22,8 @@ from datetime import datetime, timezone
 
 from flask import Flask, jsonify, request, send_from_directory
 
+import romm
+
 # --- CONFIGURATION (environment variables) ---
 INPUT_CSV = os.environ.get("INPUT_CSV", "/config/Rom_Mapping.csv")
 SRC_BASE = os.environ.get("SRC_BASE", "/path/to/roms")
@@ -28,6 +34,10 @@ STATE_FILE = os.environ.get(
 SYNC_SCRIPT = os.environ.get("SYNC_SCRIPT", "/usr/local/bin/rom-mapper.sh")
 BASH_BIN = os.environ.get("BASH_BIN") or shutil.which("bash") or "bash"
 PORT = int(os.environ.get("PORT", "8085"))
+# RomM: the lolroms download folder (e.g. Rom Sync's), mounted at the same path as on the host.
+# Can also be set in the UI; "" = RomM section not set up yet.
+ROMM_SOURCE = os.environ.get("ROMM_SOURCE", "")
+CONFIG_DIR = os.path.dirname(INPUT_CSV) or "."
 # ----------------------------------------------
 
 TOGGLE_ROW = "Media Toggle"
@@ -45,6 +55,7 @@ DEFAULT_SETTINGS = {
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 
 csv_lock = threading.RLock()      # guards reads/writes of the CSV and state file
+romm_lock = threading.RLock()     # guards romm-mapper.json and the platform links
 sync_lock = threading.Lock()      # only one sync at a time
 activity = deque(maxlen=200)      # in-memory event log for the UI
 
@@ -361,6 +372,72 @@ def start_sync_async(trigger):
     return True
 
 
+# ---------------------------------------------------------------- RomM
+
+_romm_cache = {"key": None, "at": 0.0, "folders": None}
+
+
+def romm_saved():
+    return romm.read_backup(CONFIG_DIR)
+
+
+def romm_save(cur):
+    atomic_write(os.path.join(CONFIG_DIR, romm.BACKUP_FILE),
+                 json.dumps(cur, ensure_ascii=False, indent=1, sort_keys=True))
+    _romm_cache["key"] = None
+
+
+def romm_source(saved=None):
+    saved = romm_saved() if saved is None else saved
+    return (saved.get("source") or ROMM_SOURCE or "").rstrip("/") or ""
+
+
+def romm_mapping(fresh=False):
+    """-> (Mapping or None, source, error). Folder counts are cached for 30 s (walking a big
+    library takes a moment)."""
+    saved = romm_saved()
+    source = romm_source(saved)
+    if not source:
+        return None, source, "Set the lolroms download folder first."
+    if not os.path.isdir(source):
+        return None, source, f"Folder not found: {source} (is it mounted into the container at the same path?)"
+    c = _romm_cache
+    if fresh or c["key"] != source or time.time() - c["at"] > 30:
+        c.update(key=source, at=time.time(), folders=romm.folders_from_disk(source))
+    return romm.Mapping(c["folders"], romm.options_from({"romm": saved}), source), source, None
+
+
+def romm_view(fresh=False):
+    m, source, error = romm_mapping(fresh)
+    saved = romm_saved()
+    opt = romm.options_from({"romm": saved})
+    slugs = [{"slug": k, "name": v[0], "family": v[1], "kind": v[2]} for k, v in sorted(romm.PLATFORMS.items())]
+    base = {"source": source, "source_env": ROMM_SOURCE, "error": error, "slugs": slugs,
+            "options": {**{k: opt[k] for k in ("variants", "layout", "links_dir", "keep_links")},
+                        "romm_folder": romm.Mapping({"": (0, 0)}, opt).romm_folder()}}
+    if m is None:
+        return {**base, "rows": [], "platforms": [], "firmware": [], "warnings": [], "summary":
+                {"platforms": 0, "firmware": 0, "files": 0}, "links": {}, "outputs": {"compose": "", "config": ""}}
+    return {**base,
+            "links": {"dir": m.links_dir, "download_dir": m.data_dir, "inside": m.data_in_links(),
+                      "targets": m.link_targets()},
+            "rows": m.rows(), "platforms": m.platforms, "firmware": m.firmware,
+            "warnings": m.warnings(), "summary": m.summary(),
+            "outputs": {"compose": m.compose(), "config": m.config_yml()}}
+
+
+def romm_apply_links(trigger):
+    with romm_lock:
+        m, source, error = romm_mapping(fresh=True)
+        if m is None:
+            raise RuntimeError(error)
+        res = romm.apply_links(m)
+    text = romm.describe_links(res)
+    if trigger != "scheduled" or res["created"] or res["updated"] or res["removed"] or res["errors"]:
+        log(f"{text} ({trigger})")
+    return res, text
+
+
 # ---------------------------------------------------------------- scheduler
 
 def parse_iso(ts):
@@ -380,6 +457,11 @@ def scheduler_loop():
             last_sync = parse_iso((state["last_sync"] or {}).get("time"))
             if s["scan_enabled"] and now - last_scan >= max(1, float(s["scan_interval_minutes"])) * 60:
                 run_scan("scheduled")
+                if romm_saved().get("keep_links") and romm_source():
+                    try:
+                        romm_apply_links("scheduled")
+                    except Exception as e:  # noqa: BLE001
+                        log(f"RomM platform links not updated: {e}")
             if s["sync_enabled"] and now - last_sync >= max(0.1, float(s["sync_interval_hours"])) * 3600:
                 start_sync_async("scheduled")
         except Exception as e:  # noqa: BLE001 - never let the scheduler die
@@ -457,6 +539,65 @@ def api_settings():
     update_state(settings=s)
     log("Schedule settings updated")
     return jsonify({"ok": True, "settings": s})
+
+
+@app.get("/api/romm")
+def api_romm():
+    return jsonify(romm_view(fresh=request.args.get("fresh") == "1"))
+
+
+@app.put("/api/romm/options")
+def api_romm_options():
+    body = request.get_json(force=True) or {}
+    with romm_lock:
+        cur = romm_saved()
+        for k in ("romm_folder", "links_dir", "source"):
+            if k in body:
+                v = str(body[k] or "").strip().rstrip("/")
+                if k in ("links_dir", "source") and v and not v.startswith("/"):
+                    return jsonify({"error": f"{k.replace('_', ' ')} must be a full path starting with /"}), 400
+                cur[k] = v
+        for k in ("variants", "keep_links"):
+            if k in body:
+                cur[k] = bool(body[k])
+        if body.get("layout") in ("category", "folders"):
+            cur["layout"] = body["layout"]
+        romm_save(cur)
+    return jsonify(romm_view(fresh="source" in body))
+
+
+@app.put("/api/romm/map")
+def api_romm_map():
+    body = request.get_json(force=True) or {}
+    path = str(body.get("path") or "")
+    try:
+        action = romm.check_action(str(body.get("action") or ""))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    with romm_lock:
+        cur = romm_saved()
+        mapping = dict(cur.get("map") or {})
+        if action:
+            mapping[path] = action
+        else:
+            mapping.pop(path, None)
+        cur["map"] = mapping
+        romm_save(cur)
+    return jsonify(romm_view())
+
+
+@app.post("/api/romm/links")
+def api_romm_links():
+    try:
+        res, text = romm_apply_links("manual")
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 400
+    with romm_lock:
+        cur = romm_saved()
+        if not cur.get("keep_links") and not res["errors"]:
+            cur["keep_links"] = True          # from now on kept up to date with every scan
+            romm_save(cur)
+    return jsonify({**romm_view(), "applied": {**res, "text": text}})
 
 
 @app.get("/api/activity")

@@ -12,6 +12,8 @@ services:
       INPUT_CSV: /config/Rom_Mapping.csv
       SRC_BASE: ${ROMS_PATH}
       DEST_PATH: ${MAPPING_PATH}
+      # RomM: the lolroms download folder (can also be set in the web UI)
+      ROMM_SOURCE: ${ROMM_SOURCE:-}
     volumes:
       # Your private CSV + the UI's schedule/state file live here on the host.
       # Read-write so the UI can save mappings (a .bak is kept on every save).
@@ -20,4 +22,8 @@ services:
       # container as on the host. The script creates absolute symlinks, so the
       # targets must resolve identically outside the container.
       - ${EMULATION_ROOT}:${EMULATION_ROOT}
+      # RomM (optional): the folder that holds the lolroms downloads (e.g. Rom Sync's), also at the
+      # same path. ROM Mapper writes RomM's platform links next to the download folder, so the
+      # container needs write access here. Remove this line if you don't use the RomM section.
+      - ${ROMM_ROOT:-/path/to/downloads}:${ROMM_ROOT:-/path/to/downloads}
     restart: unless-stopped
