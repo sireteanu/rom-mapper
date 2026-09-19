@@ -2,7 +2,8 @@
 
 Builds per-frontend ROM folder layouts (Batocera/RGS, RetroBat, Knulli, ...) as
 **symlinks** into a single master ROM library, driven by a CSV mapping file.
-It includes a web UI for editing the mappings and scheduling scans and resyncs.
+It includes a web UI for editing the mappings and scheduling scans and resyncs, and a
+**RomM** section that maps a lolroms download folder to RomM platforms (see [RomM](#romm)).
 
 ## Web UI
 
@@ -30,6 +31,38 @@ previous version as `Rom_Mapping.csv.bak`. Schedules and last-run info are store
 
 > There is no login. Keep the port on your LAN.
 
+## RomM
+
+The **RomM** button maps a lolroms download folder (for example the one
+[Rom Sync](https://github.com/sireteanu/rom-sync) keeps) to [RomM](https://github.com/rommapp/romm)
+platforms. lolroms nests platforms (`Nintendo/Super Famicom/Satellaview`) and keeps variants in
+subfolders (`T-En`, `MSU-1`), while RomM wants one folder per platform. Nothing is moved:
+
+- **Platform links**: relative links named after RomM's platforms are kept next to the download
+  folder, e.g. in `/path/to/downloads`: `snes -> lolroms/Nintendo/Super Famicom`,
+  `satellaview -> lolroms/Nintendo/Super Famicom/Satellaview`. Map that one folder as RomM's roms
+  folder (`- /path/to/downloads:/romm/library/roms`; the **RomM compose** tab shows the line).
+  **Create / update links now** makes them and turns on *Update the links with every scan*; from
+  then on every scheduled scan keeps them current. Only links pointing into the download folder
+  are ever changed or removed; real folders and other links are left alone.
+- **config.yml**: merge the generated section into RomM's `config.yml` - which subfolders belong to
+  a platform (`{category}` levels by default), which to ignore, and `system.versions` for arcade
+  boards RomM has no platform for. Restart RomM and scan its library.
+- **Folder table**: every folder in the download folder that holds files, with its RomM platform
+  from built-in rules for lolroms' tree. Pick another platform or **exclude** from the dropdown;
+  each choice is saved at once. BIOS folders become firmware automatically (copy them to RomM's
+  bios folder). **RomM platforms list** shows every platform RomM knows.
+
+Settings and choices are stored in `romm-mapper.json` next to the CSV - the same file and format
+Rom Sync used, so copying Rom Sync's `romm-mapper.json` (from its config folder) here keeps every
+choice. If it has a *links folder* set, clear it in the dialog: Rom Sync saw paths inside its own
+container. Rom Sync's own RomM Mapper keeps working for now; once this one is set up, turn off
+*Update the links after every sync* there so only one app manages the links.
+
+Setup: mount the folder that holds the download folder at the **same path** (`ROMM_ROOT` in
+`docker-compose.yml`, writable - the links go there) and set `ROMM_SOURCE` (or type the download
+folder in the dialog). Without Docker: `ROMM_SOURCE=/path/to/lolroms python app/server.py`.
+
 ## CSV format
 
 | Row | Meaning |
@@ -55,7 +88,7 @@ cd /path/to/appdata/rom-mapper && docker build -t rom-mapper .
 ```
 
 ```bash
-docker run -d --name rom-mapper --restart unless-stopped --user 99:100 -p 8085:8085 -e TZ=America/New_York -e SRC_BASE=/path/to/roms -e DEST_PATH=/path/to/mapping -v /path/to/appdata/rom-mapper:/config -v /path/to/shares:/path/to/shares rom-mapper
+docker run -d --name rom-mapper --restart unless-stopped --user 99:100 -p 8085:8085 -e TZ=America/New_York -e SRC_BASE=/path/to/roms -e DEST_PATH=/path/to/mapping -v /path/to/appdata/rom-mapper:/config -v /path/to/shares:/path/to/shares -e ROMM_SOURCE=/path/to/downloads/lolroms -v /path/to/downloads:/path/to/downloads rom-mapper
 ```
 
 The container then appears on the Docker tab. To update it, run `git pull`, rebuild,
