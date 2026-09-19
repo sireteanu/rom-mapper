@@ -91,6 +91,49 @@
            padding: 8px 14px; border-radius: 6px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; }
   #toast.show { opacity: 1; }
   .hint { color: var(--muted); font-size: 12px; }
+  /* ---------- RomM ---------- */
+  dialog.romm { max-width: min(1240px, 97vw); }
+  .romm .head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .romm .head h2 { margin: 0; font-size: 18px; }
+  .romm .intro { color: var(--muted); font-size: 13px; margin: 6px 0 10px; }
+  .romm .field { display: grid; gap: 3px; margin: 8px 0; font-size: 13px; }
+  .romm .field > span:first-child { font-weight: 600; }
+  .romm .field input[type=text], .romm .field select { width: 100%; }
+  .romm .field small, .romm small { color: var(--muted); font-size: 12px; }
+  .romm .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .romm .box { border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; margin: 8px 0; background: var(--bg); }
+  .romm .check { display: flex; gap: 6px; align-items: center; font-size: 13px; margin: 4px 0; }
+  .romm select { font: inherit; color: var(--text); background: var(--input-bg); border: 1px solid var(--border);
+                 border-radius: 5px; padding: 4px 6px; }
+  .romm .warnings { margin: 6px 0; padding-left: 18px; font-size: 12.5px; color: var(--warn); }
+  .romm .warnings:empty { display: none; }
+  .romm .grid2 { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 14px; margin-top: 6px; }
+  .romm .bar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+  .romm .bar h3 { font-size: 13.5px; margin: 0 auto 0 0; }
+  .romm .wrap { max-height: 50vh; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+  .romm table { width: 100%; }
+  .romm thead th { font-size: 12px; color: var(--muted); }
+  .romm td.p { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+               font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+  .romm td.n { text-align: right; color: var(--muted); }
+  .romm td.res { white-space: nowrap; font-size: 12.5px; }
+  .romm select.act { width: 210px; font-size: 12.5px; }
+  .romm .tabs { display: flex; gap: 2px; margin-right: auto; }
+  .romm .tab { font-size: 12.5px; padding: 3px 10px; border-color: transparent; background: transparent; color: var(--muted); }
+  .romm .tab.on { color: var(--text); background: var(--hover); border-color: var(--border); }
+  .romm .ref-btn { border-style: dashed; color: var(--accent); border-color: var(--accent); border-radius: 999px; font-size: 12.5px; }
+  .romm .ref-btn.on { border-style: solid; background: var(--new-bg); }
+  .romm pre { max-height: 50vh; margin: 0; }
+  .romm .ref { border: 1px solid var(--accent); border-left-width: 4px; border-radius: 6px; padding: 8px; }
+  .romm .ref input { width: 100%; margin-bottom: 6px; }
+  .romm .slug { border: 0; background: none; padding: 0; color: var(--accent); font: 12px ui-monospace, Consolas, monospace; }
+  .romm .slug.copied::after { content: " copied"; color: var(--ok); font-family: system-ui, sans-serif; }
+  .romm tr.in-use td:nth-child(2) { font-weight: 600; }
+  .romm .st-ok { color: var(--ok); } .romm .st-warn { color: var(--warn); } .romm .st-bad { color: var(--danger); }
+  .romm .st-none { color: var(--muted); }
+  .romm [hidden] { display: none !important; }
+  #rApply { align-self: start; justify-self: start; }
+  @media (max-width: 900px) { .romm .grid2, .romm .two { grid-template-columns: 1fr; } }
   @media (max-width: 900px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 520px) { .cards { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 640px) {
@@ -105,6 +148,7 @@
   <h1>ROM Mapper</h1>
   <div class="actions">
     <span id="dirty" class="dirty" hidden>● Unsaved changes</span>
+    <button id="btnRomm" title="Map a lolroms download folder to RomM platforms (links + config.yml)">RomM</button>
     <button id="btnScan" title="Re-read the ROM folder for new or removed folders">Scan now</button>
     <button id="btnSync" class="danger" title="Delete every link in the mapping folder and recreate them from the saved CSV">Resync all</button>
     <button id="btnSave" disabled>Save</button>
@@ -156,6 +200,60 @@
   <h3 style="margin-top:0">Last resync output</h3>
   <pre id="outPre"></pre>
   <form method="dialog" style="text-align:right"><button>Close</button></form>
+</dialog>
+<dialog id="rommDlg" class="romm">
+  <div class="head"><h2>RomM</h2><form method="dialog"><button aria-label="Close">✕</button></form></div>
+  <p class="intro">RomM sees each lolroms folder under its platform name through a <b>platform link</b>
+    (snes &rarr; lolroms/Nintendo/Super Famicom) next to the download folder, so RomM needs a single folder
+    mapping. Nothing is moved or copied, so syncing keeps working. Merge the config into RomM's
+    <code>config.yml</code>, restart RomM and scan its library.</p>
+  <label class="field"><span>lolroms download folder</span><input type="text" id="rSource" placeholder="/path/to/downloads/lolroms">
+    <small id="rSourceHint">Where Rom Sync saves its downloads. It must be mounted into this container at the same path.</small></label>
+  <p id="rError" class="bad" hidden></p>
+  <div class="box">
+    <div class="two">
+      <label class="field"><span>Links folder</span><input type="text" id="rLinkDir">
+        <small id="rLinkHint">Must contain the download folder. Map this same folder as RomM's roms folder.</small></label>
+      <div class="field"><span>&nbsp;</span><button id="rApply" type="button">Create / update links now</button></div>
+    </div>
+    <label class="check"><input type="checkbox" id="rKeep"> Update the links with every scan (turned on by the first "Create / update links now")</label>
+    <p id="rApplied" class="hint" hidden></p>
+  </div>
+  <div class="two">
+    <label class="field"><span>RomM folder</span><input type="text" id="rRommFolder" placeholder="/romm/library/roms/lolroms">
+      <small>Where the lolroms downloads appear inside RomM's container.</small></label>
+    <label class="field"><span>Subfolders in config.yml</span>
+      <select id="rLayout">
+        <option value="category">{category} levels - also picks up subfolders added later</option>
+        <option value="folders">Exact folder names - only the subfolders listed here</option>
+      </select></label>
+  </div>
+  <label class="check"><input type="checkbox" id="rVar"> Include subfolders such as T-En, hacks and add-ons in their platform</label>
+  <ul id="rWarn" class="warnings"></ul>
+  <div class="grid2">
+    <section>
+      <div class="bar"><h3 id="rCount">Folders</h3><button id="rRefresh" title="Read the download folder again">Refresh</button></div>
+      <div class="wrap"><table><thead><tr><th>Folder</th><th>Files</th><th>RomM platform</th><th>Result</th></tr></thead>
+        <tbody id="rBody"></tbody></table></div>
+      <p class="hint">Pick the RomM platform for a folder, or <b>exclude</b> to leave it out of RomM. A subfolder with the
+        same platform as its parent (like T-En under snes) is part of that platform. Every choice is saved right away.</p>
+    </section>
+    <section>
+      <div class="bar">
+        <div class="tabs"><button class="tab on" data-out="compose">RomM compose</button><button class="tab" data-out="config">config.yml</button></div>
+        <button id="rCopy">Copy</button>
+        <button class="ref-btn" data-out="list" title="Every platform RomM knows">RomM platforms list</button>
+      </div>
+      <p id="rHelp" class="hint"></p>
+      <pre id="rOut"></pre>
+      <div id="rList" class="ref" hidden>
+        <div class="hint" style="margin-bottom:6px"><b>Reference</b> - every platform RomM knows. Click a name to copy it.</div>
+        <input type="search" id="rListFind" placeholder="Find a platform, e.g. famicom or Sega">
+        <div class="wrap"><table><thead><tr><th>RomM platform</th><th>Name</th><th>Maker</th><th>Your folders</th></tr></thead>
+          <tbody id="rListBody"></tbody></table></div>
+      </div>
+    </section>
+  </div>
 </dialog>
 <div id="toast"></div>
 
@@ -443,6 +541,146 @@ window.addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault()
 
 // Refresh periodically to pick up scheduled scans/resyncs (keeps your edits if you have any).
 setInterval(() => { load({ keepEdits: true }).catch(() => {}); loadActivity(); }, 30000);
+
+// ------------------------------------------------------------- RomM
+(() => {
+  const q = (sel, el = document) => el.querySelector(sel);
+  const num = (n) => (n || 0).toLocaleString();
+  const HELP = {
+    compose: "For RomM's container: map the links folder as RomM's roms folder (replace its .../romm/library/roms line).",
+    config: "Merge into RomM's config.yml (in its /romm/config folder), keeping your other settings.",
+  };
+  let R = null, tab = "compose", outTab = "compose";
+  const pending = {};
+
+  const label = (v) => v === "exclude" ? "exclude - leave out of RomM" : v === "firmware" ? "firmware (automatic)"
+    : v === "" ? "- pick a platform -" : (() => { const p = R.slugs.find(x => x.slug === v); return p ? `${v} - ${p.name}` : v; })();
+  // a dropdown is filled with only its current choice until it's opened (hundreds of rows x platforms)
+  function fill(sel, r, value, full) {
+    sel.innerHTML = "";
+    const add = (parent, v, text) => { const o = document.createElement("option"); o.value = v; o.textContent = text; parent.append(o); };
+    if (!full) add(sel, value, label(value));
+    else {
+      if (value === "") add(sel, "", label(""));
+      if (value === "firmware" || r.auto === "firmware") add(sel, "firmware", label("firmware"));
+      add(sel, "exclude", label("exclude"));
+      const g = document.createElement("optgroup"); g.label = "RomM platforms"; sel.append(g);
+      for (const p of R.slugs) add(g, p.slug, `${p.slug} - ${p.name}`);
+      if (value && ![...sel.options].some(o => o.value === value)) add(sel, value, value);
+      sel.dataset.full = "1";
+    }
+    sel.value = value;
+  }
+  function result(r) {
+    if (r.kind === "platform") return [r.used ? `roms/${r.slug}` : `roms/${r.slug} (no files yet)`, r.custom ? "warn" : "ok"];
+    if (r.kind === "merge") return [r.used ? `in ${r.slug}` : `in ${r.slug} (no files yet)`, "ok"];
+    if (r.kind === "bios") return [`firmware: bios/${r.slug}`, "ok"];
+    if (r.kind === "skip") return ["left out of RomM", "none"];
+    return ["no platform", "bad"];
+  }
+  function render() {
+    const d = R;
+    $("rError").hidden = !d.error; $("rError").textContent = d.error || "";
+    $("rSourceHint").textContent = d.source_env && d.source === d.source_env
+      ? `From the ROMM_SOURCE setting of the container. Change it here to use another folder.`
+      : "Where Rom Sync saves its downloads. It must be mounted into this container at the same path.";
+    const body = $("rBody"), wrap = body.closest(".wrap"), scroll = wrap.scrollTop;
+    body.innerHTML = "";
+    for (const r of d.rows) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td class="p"></td><td class="n"></td><td><select class="act"></select></td><td class="res"></td>`;
+      tr.children[0].textContent = r.path; tr.children[0].title = r.path;
+      tr.children[1].textContent = num(r.files);
+      const sel = q(".act", tr);
+      fill(sel, r, r.path in pending ? pending[r.path] : r.value, false);
+      const full = () => { if (!sel.dataset.full) fill(sel, r, sel.value, true); };
+      ["pointerdown", "focus", "keydown"].forEach(ev => sel.addEventListener(ev, full));
+      sel.setAttribute("aria-label", `RomM platform for ${r.path}`);
+      sel.addEventListener("change", () => save(r.path, sel.value === r.auto || sel.value === "firmware" ? "" : sel.value, sel.value));
+      const [text, cls] = result(r);
+      tr.children[3].textContent = text; tr.children[3].className = "res st-" + cls;
+      body.append(tr);
+    }
+    if (!d.rows.length) body.innerHTML = `<tr><td colspan="4" class="hint">${d.error ? "" : "No folders with files yet."}</td></tr>`;
+    wrap.scrollTop = scroll;
+    const s = d.summary;
+    $("rCount").textContent = `${num(d.rows.length)} folders: ${num(s.platforms)} platforms, ${num(s.firmware)} firmware, ${num(s.files)} files`;
+    $("rWarn").innerHTML = "";
+    for (const t of d.warnings) { const li = document.createElement("li"); li.textContent = t; $("rWarn").append(li); }
+    const isList = tab === "list";
+    $("rOut").hidden = isList; $("rList").hidden = !isList; $("rCopy").hidden = isList;
+    if (isList) renderList(); else $("rOut").textContent = d.outputs[tab] || "";
+    $("rHelp").textContent = isList ? "" : HELP[tab];
+    const l = d.links || {};
+    $("rLinkDir").placeholder = l.dir || "";
+    $("rLinkHint").textContent = !d.source ? "Set the download folder first."
+      : l.inside ? `Links go in ${l.dir}, next to "${l.inside}" (the download folder). Map ${l.dir} as RomM's roms folder.`
+      : `The download folder (${d.source}) must be inside the links folder.`;
+    document.querySelectorAll("#rommDlg .tab").forEach(t => t.classList.toggle("on", t.dataset.out === tab));
+    q("#rommDlg .ref-btn").classList.toggle("on", isList);
+    $("rApply").disabled = !!d.error;
+  }
+  function renderList() {
+    const f = $("rListFind").value.trim().toLowerCase();
+    const used = {}; for (const p of R.platforms) used[p.slug] = p.folders;
+    const body = $("rListBody"); body.innerHTML = "";
+    for (const p of R.slugs) {
+      if (f && !`${p.slug} ${p.name} ${p.family}`.toLowerCase().includes(f)) continue;
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td><button class="slug" title="Copy"></button></td><td></td><td></td><td class="p"></td>`;
+      const b = q(".slug", tr); b.textContent = p.slug;
+      b.onclick = async () => { try { await navigator.clipboard.writeText(p.slug); b.classList.add("copied"); setTimeout(() => b.classList.remove("copied"), 1000); } catch (e) {} };
+      tr.children[1].textContent = p.name; tr.children[2].textContent = p.family;
+      const fs = used[p.slug] || []; tr.children[3].textContent = fs.join(", "); tr.children[3].title = fs.join("\n");
+      if (fs.length) tr.classList.add("in-use");
+      body.append(tr);
+    }
+  }
+  function loadR(d) {
+    R = d;
+    $("rSource").value = d.source || "";
+    $("rRommFolder").value = d.options.romm_folder || "";
+    $("rVar").checked = !!d.options.variants;
+    $("rLayout").value = d.options.layout || "category";
+    $("rKeep").checked = !!d.options.keep_links;
+    $("rLinkDir").value = d.options.links_dir || "";
+    render();
+  }
+  async function save(path, action, shown) {
+    pending[path] = shown;
+    try { const d = await api("PUT", "/api/romm/map", { path, action }); delete pending[path]; loadR(d); }
+    catch (e) { delete pending[path]; alert(`Not saved for ${path}: ${e.message}`); render(); }
+  }
+  async function options(extra = {}) {
+    try {
+      loadR(await api("PUT", "/api/romm/options", { romm_folder: $("rRommFolder").value, variants: $("rVar").checked,
+        layout: $("rLayout").value, keep_links: $("rKeep").checked, links_dir: $("rLinkDir").value, ...extra }));
+    } catch (e) { alert(e.message); }
+  }
+  ["rRommFolder", "rVar", "rLayout", "rKeep", "rLinkDir"].forEach(id => $(id).addEventListener("change", () => options()));
+  $("rSource").addEventListener("change", () => options({ source: $("rSource").value }));
+  $("btnRomm").onclick = async () => {
+    $("rommDlg").showModal(); $("rOut").textContent = "Loading…";
+    try { loadR(await api("GET", "/api/romm")); } catch (e) { $("rOut").textContent = e.message; }
+  };
+  $("rRefresh").onclick = async () => { loadR(await api("GET", "/api/romm?fresh=1")); toast("Folders read again."); };
+  $("rApply").onclick = async () => {
+    const out = $("rApplied"); $("rApply").disabled = true;
+    try {
+      const d = await api("POST", "/api/romm/links"); loadR(d);
+      out.textContent = d.applied.text; out.className = d.applied.errors.length ? "bad" : "hint";
+    } catch (e) { out.textContent = "Could not update the links: " + e.message; out.className = "bad"; }
+    out.hidden = false; $("rApply").disabled = false; loadActivity();
+  };
+  document.querySelectorAll("#rommDlg .tab").forEach(t => t.onclick = () => { tab = outTab = t.dataset.out; render(); });
+  q("#rommDlg .ref-btn").onclick = () => { tab = tab === "list" ? outTab : "list"; render(); };
+  $("rListFind").addEventListener("input", renderList);
+  $("rCopy").onclick = async () => {
+    try { await navigator.clipboard.writeText($("rOut").textContent); }
+    catch (e) { const r = document.createRange(); r.selectNodeContents($("rOut")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); document.execCommand("copy"); s.removeAllRanges(); }
+    $("rCopy").textContent = "Copied"; setTimeout(() => ($("rCopy").textContent = "Copy"), 1500);
+  };
+})();
 
 load().catch(e => { $("banner").innerHTML = `<div class="banner">Failed to load: ${esc(e.message)}</div>`; });
 loadActivity();
