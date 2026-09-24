@@ -33,35 +33,52 @@ previous version as `Rom_Mapping.csv.bak`. Schedules and last-run info are store
 
 ## RomM
 
-The **RomM** button maps a lolroms download folder (for example the one
-[Rom Sync](https://github.com/sireteanu/rom-sync) keeps) to [RomM](https://github.com/rommapp/romm)
-platforms. lolroms nests platforms (`Nintendo/Super Famicom/Satellaview`) and keeps variants in
-subfolders (`T-En`, `MSU-1`), while RomM wants one folder per platform. Nothing is moved:
+The **RomM** button maps one or more download folders to [RomM](https://github.com/rommapp/romm)
+platforms - for example the lolroms folder [Rom Sync](https://github.com/sireteanu/rom-sync) keeps
+(`/path/to/downloads/lolroms`) and a RomM-style collection (`/path/to/downloads/rommer`). lolroms nests
+platforms (`Nintendo/Super Famicom/Satellaview`) and keeps variants in subfolders (`T-En`, `MSU-1`),
+while RomM wants one folder per platform. Nothing is moved:
 
-- **Platform links**: relative links named after RomM's platforms are kept next to the download
-  folder, e.g. in `/path/to/downloads`: `snes -> lolroms/Nintendo/Super Famicom`,
+- **Download folders**: a list in priority order (add, remove, move up/down). Every folder is
+  read from disk; rows in the table start with the folder's name (`lolroms/...`, `rommer/...`).
+  Folders named exactly like a RomM platform right inside a download folder (`rommer/snes`) get
+  that platform automatically; lolroms folders get it from built-in rules.
+- **Overlaps**: RomM can only have one folder per platform. When two download folders give the
+  same platform, the one **higher in the list** is linked; the other's rows say *not linked* and
+  a warning names both. **Overlaps only** in the filter shows just those rows. Exclude the one
+  you don't want, or change the order.
+- **Exclude**: choosing *exclude* for a folder leaves it **and everything inside it** out of
+  RomM (even subfolders the built-in rules would map), unless you pick something else for a
+  subfolder.
+
+- **Platform links**: relative links named after RomM's platforms are kept in the folder that holds
+  the download folders, e.g. in `/path/to/downloads`: `snes -> lolroms/Nintendo/Super Famicom`, `n64 -> rommer/n64`,
   `satellaview -> lolroms/Nintendo/Super Famicom/Satellaview`. Map that one folder as RomM's roms
   folder (`- /path/to/downloads:/romm/library/roms`; the **RomM compose** tab shows the line).
   **Create / update links now** makes them and turns on *Update the links with every scan*; from
   then on every scheduled scan keeps them current. Only links pointing into the download folder
-  are ever changed or removed; real folders and other links are left alone.
-- **config.yml**: merge the generated section into RomM's `config.yml` - which subfolders belong to
-  a platform (`{category}` levels by default), which to ignore, and `system.versions` for arcade
-  boards RomM has no platform for. Restart RomM and scan its library.
+  are ever changed or removed; real folders and other links are left alone. All download
+  folders must be inside the links folder.
+- **config.yml**: merge the generated section into RomM's `config.yml` - the download folders
+  themselves aren't platforms (`exclude.platforms`), which subfolders belong to a platform
+  (`{category}` levels by default), which to ignore, and `system.versions` for arcade boards RomM
+  has no platform for. Restart RomM and scan its library.
 - **Folder table**: every folder in the download folder that holds files, with its RomM platform
   from built-in rules for lolroms' tree. Pick another platform or **exclude** from the dropdown;
   each choice is saved at once. BIOS folders become firmware automatically (copy them to RomM's
   bios folder). **RomM platforms list** shows every platform RomM knows.
 
-Settings and choices are stored in `romm-mapper.json` next to the CSV - the same file and format
-Rom Sync used, so copying Rom Sync's `romm-mapper.json` (from its config folder) here keeps every
-choice. If it has a *links folder* set, clear it in the dialog: Rom Sync saw paths inside its own
-container. Rom Sync's own RomM Mapper keeps working for now; once this one is set up, turn off
+Settings and choices are stored in `romm-mapper.json` next to the CSV (`sources` = the download
+folders in order, `map` = your choices by `<download folder>/<path>`). Rom Sync's
+`romm-mapper.json` (from its config folder) can be copied here: its choices are converted to the
+first download folder (`Konami - Picno` -> `lolroms/Konami - Picno`) and a links folder from inside
+Rom Sync's container is dropped. Rom Sync's own RomM Mapper keeps working for now; once this one is set up, turn off
 *Update the links after every sync* there so only one app manages the links.
 
-Setup: mount the folder that holds the download folder at the **same path** (`ROMM_ROOT` in
-`docker-compose.yml`, writable - the links go there) and set `ROMM_SOURCE` (or type the download
-folder in the dialog). Without Docker: `ROMM_SOURCE=/path/to/lolroms python app/server.py`.
+Setup: mount the folder that holds the download folders at the **same path** (`ROMM_ROOT` in
+`docker-compose.yml`, writable - the links go there) and add the folders in the dialog (or set
+`ROMM_SOURCE`, several separated by `;`, used until the dialog saves a list). Without Docker:
+`ROMM_SOURCE="/path/to/lolroms;/path/to/rommer" python app/server.py`.
 
 ## CSV format
 
