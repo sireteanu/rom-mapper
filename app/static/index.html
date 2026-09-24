@@ -107,13 +107,13 @@
                  border-radius: 5px; padding: 4px 6px; }
   .romm .warnings { margin: 6px 0; padding-left: 18px; font-size: 12.5px; color: var(--warn); }
   .romm .warnings:empty { display: none; }
-  .romm .grid2 { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 14px; margin-top: 6px; }
+  .romm .grid2 { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 14px; margin-top: 6px; }
   .romm .bar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
   .romm .bar h3 { font-size: 13.5px; margin: 0 auto 0 0; }
   .romm .wrap { max-height: 50vh; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
   .romm table { width: 100%; }
   .romm thead th { font-size: 12px; color: var(--muted); }
-  .romm td.p { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  .romm td.p { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
                font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
   .romm td.n { text-align: right; color: var(--muted); }
   .romm td.res { white-space: nowrap; font-size: 12.5px; }
@@ -133,6 +133,17 @@
   .romm .st-none { color: var(--muted); }
   .romm [hidden] { display: none !important; }
   #rApply { align-self: start; justify-self: start; }
+  .romm .sources { display: grid; gap: 4px; margin: 2px 0 4px; }
+  .romm .src { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 6px;
+               padding: 4px 6px 4px 10px; background: var(--bg); }
+  .romm .src .pos { color: var(--muted); font-size: 12px; width: 16px; }
+  .romm .src code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .romm .src .meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .romm .src button { padding: 2px 8px; }
+  .romm .srcadd { display: flex; gap: 6px; }
+  .romm .srcadd input { flex: 1; }
+  .romm tr.root td { font-weight: 600; background: var(--bg); }
+  .romm tr.conflict td.p { color: var(--warn); }
   @media (max-width: 900px) { .romm .grid2, .romm .two { grid-template-columns: 1fr; } }
   @media (max-width: 900px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 520px) { .cards { grid-template-columns: minmax(0, 1fr); } }
@@ -203,12 +214,16 @@
 </dialog>
 <dialog id="rommDlg" class="romm">
   <div class="head"><h2>RomM</h2><form method="dialog"><button aria-label="Close">✕</button></form></div>
-  <p class="intro">RomM sees each lolroms folder under its platform name through a <b>platform link</b>
-    (snes &rarr; lolroms/Nintendo/Super Famicom) next to the download folder, so RomM needs a single folder
+  <p class="intro">RomM sees each folder under its platform name through a <b>platform link</b>
+    (snes &rarr; lolroms/Nintendo/Super Famicom) next to the download folders, so RomM needs a single folder
     mapping. Nothing is moved or copied, so syncing keeps working. Merge the config into RomM's
     <code>config.yml</code>, restart RomM and scan its library.</p>
-  <label class="field"><span>lolroms download folder</span><input type="text" id="rSource" placeholder="/path/to/downloads/lolroms">
-    <small id="rSourceHint">Where Rom Sync saves its downloads. It must be mounted into this container at the same path.</small></label>
+  <div class="field"><span>Download folders</span>
+    <div id="rSources" class="sources"></div>
+    <div class="srcadd"><input type="text" id="rSourceNew" placeholder="/path/to/downloads/rommer"><button id="rSourceAdd" type="button">Add folder</button></div>
+    <small>Each folder is mapped into RomM (for example Rom Sync's lolroms folder and a RomM-style folder).
+      When two give the same platform, the one <b>higher in the list</b> is used - exclude the other, or change the order.
+      Folders must be mounted into this container at the same path.</small></div>
   <p id="rError" class="bad" hidden></p>
   <div class="box">
     <div class="two">
@@ -221,7 +236,7 @@
   </div>
   <div class="two">
     <label class="field"><span>RomM folder</span><input type="text" id="rRommFolder" placeholder="/romm/library/roms/lolroms">
-      <small>Where the lolroms downloads appear inside RomM's container.</small></label>
+      <small>Where the first download folder appears inside RomM's container (RomM's library path is worked out from it).</small></label>
     <label class="field"><span>Subfolders in config.yml</span>
       <select id="rLayout">
         <option value="category">{category} levels - also picks up subfolders added later</option>
@@ -232,7 +247,9 @@
   <ul id="rWarn" class="warnings"></ul>
   <div class="grid2">
     <section>
-      <div class="bar"><h3 id="rCount">Folders</h3><button id="rRefresh" title="Read the download folder again">Refresh</button></div>
+      <div class="bar"><h3 id="rCount">Folders</h3>
+        <select id="rFilter" aria-label="Show"></select>
+        <button id="rRefresh" title="Read the download folders again">Refresh</button></div>
       <div class="wrap"><table><thead><tr><th>Folder</th><th>Files</th><th>RomM platform</th><th>Result</th></tr></thead>
         <tbody id="rBody"></tbody></table></div>
       <p class="hint">Pick the RomM platform for a folder, or <b>exclude</b> to leave it out of RomM. A subfolder with the
@@ -578,16 +595,57 @@ setInterval(() => { load({ keepEdits: true }).catch(() => {}); loadActivity(); }
     if (r.kind === "skip") return ["left out of RomM", "none"];
     return ["no platform", "bad"];
   }
+  let show = "all";
+  function renderSources() {
+    const box = $("rSources"); box.innerHTML = "";
+    const roots = (R.links && R.links.roots) || [];
+    const files = {}; for (const r of R.rows) if (r.root) files[r.root] = (files[r.root] || 0) + r.files;
+    R.sources.forEach((p, i) => {
+      const div = document.createElement("div"); div.className = "src";
+      div.innerHTML = `<span class="pos"></span><code></code><span class="meta"></span>
+        <button type="button" data-up title="Move up (preferred when two folders give the same platform)">↑</button>
+        <button type="button" data-down title="Move down">↓</button>
+        <button type="button" data-del title="Stop mapping this folder (nothing is deleted)">✕</button>`;
+      q(".pos", div).textContent = i + 1;
+      q("code", div).textContent = p; q("code", div).title = p;
+      const root = roots[i];
+      q(".meta", div).textContent = root !== undefined ? `${num(files[root] || 0)} files` : "";
+      q("[data-up]", div).disabled = i === 0;
+      q("[data-down]", div).disabled = i === R.sources.length - 1;
+      const move = (to) => { const s = [...R.sources]; s.splice(i, 1); s.splice(to, 0, p); options({ sources: s }); };
+      q("[data-up]", div).onclick = () => move(i - 1);
+      q("[data-down]", div).onclick = () => move(i + 1);
+      q("[data-del]", div).onclick = () => {
+        if (confirm(`Stop mapping ${p}? Its platform links are removed at the next update; your files and choices stay.`))
+          options({ sources: R.sources.filter((x) => x !== p) });
+      };
+      box.append(div);
+    });
+    if (!R.sources.length) box.innerHTML = `<div class="hint">No download folder yet - add one below.</div>`;
+  }
+  function renderFilter() {
+    const roots = (R.links && R.links.roots) || [];
+    const opts = [["all", "All folders"], ...roots.map((r) => ["root:" + r, `Only ${r}`]), ["overlap", `Overlaps only (${R.conflicts ? R.conflicts.length : 0})`]];
+    if (!opts.some(([v]) => v === show)) show = "all";
+    $("rFilter").innerHTML = opts.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
+    $("rFilter").value = show;
+    $("rFilter").hidden = roots.length < 2 && !(R.conflicts && R.conflicts.length);
+  }
   function render() {
     const d = R;
     $("rError").hidden = !d.error; $("rError").textContent = d.error || "";
-    $("rSourceHint").textContent = d.source_env && d.source === d.source_env
-      ? `From the ROMM_SOURCE setting of the container. Change it here to use another folder.`
-      : "Where Rom Sync saves its downloads. It must be mounted into this container at the same path.";
+    renderSources(); renderFilter();
+    const overlap = new Set();
+    for (const c of d.conflicts || []) [...c.folders, ...c.winner_folders].forEach((p) => overlap.add(p));
     const body = $("rBody"), wrap = body.closest(".wrap"), scroll = wrap.scrollTop;
     body.innerHTML = "";
+    const roots = new Set((d.links && d.links.roots) || []);
     for (const r of d.rows) {
+      if (show === "overlap" && !overlap.has(r.path)) continue;
+      if (show.startsWith("root:") && r.root !== show.slice(5)) continue;
       const tr = document.createElement("tr");
+      if (roots.has(r.path)) tr.className = "root";
+      if (r.conflict) tr.className = "conflict";
       tr.innerHTML = `<td class="p"></td><td class="n"></td><td><select class="act"></select></td><td class="res"></td>`;
       tr.children[0].textContent = r.path; tr.children[0].title = r.path;
       tr.children[1].textContent = num(r.files);
@@ -597,7 +655,11 @@ setInterval(() => { load({ keepEdits: true }).catch(() => {}); loadActivity(); }
       ["pointerdown", "focus", "keydown"].forEach(ev => sel.addEventListener(ev, full));
       sel.setAttribute("aria-label", `RomM platform for ${r.path}`);
       sel.addEventListener("change", () => save(r.path, sel.value === r.auto || sel.value === "firmware" ? "" : sel.value, sel.value));
-      const [text, cls] = result(r);
+      let [text, cls] = result(r);
+      if (r.conflict) { text = `not linked (${r.conflict} used)`; cls = "warn"; tr.children[3].title = `${r.slug} also comes from ${r.conflict}, which is higher in the list`; }
+      else if (r.excluded_by) { text = `left out (in ${r.excluded_by})`; cls = "none"; }
+      else if (roots.has(r.path) && r.kind === "unmapped") { text = "download folder"; cls = "none"; }
+      else if (overlap.has(r.path)) text += " (used)";
       tr.children[3].textContent = text; tr.children[3].className = "res st-" + cls;
       body.append(tr);
     }
@@ -611,11 +673,9 @@ setInterval(() => { load({ keepEdits: true }).catch(() => {}); loadActivity(); }
     $("rOut").hidden = isList; $("rList").hidden = !isList; $("rCopy").hidden = isList;
     if (isList) renderList(); else $("rOut").textContent = d.outputs[tab] || "";
     $("rHelp").textContent = isList ? "" : HELP[tab];
-    const l = d.links || {};
-    $("rLinkDir").placeholder = l.dir || "";
-    $("rLinkHint").textContent = !d.source ? "Set the download folder first."
-      : l.inside ? `Links go in ${l.dir}, next to "${l.inside}" (the download folder). Map ${l.dir} as RomM's roms folder.`
-      : `The download folder (${d.source}) must be inside the links folder.`;
+    $("rLinkDir").placeholder = d.links_dir || "";
+    $("rLinkHint").textContent = !d.sources.length ? "Add a download folder first."
+      : `Links go in ${d.links_dir}, next to the download folders. Map ${d.links_dir} as RomM's roms folder.`;
     document.querySelectorAll("#rommDlg .tab").forEach(t => t.classList.toggle("on", t.dataset.out === tab));
     q("#rommDlg .ref-btn").classList.toggle("on", isList);
     $("rApply").disabled = !!d.error;
@@ -638,7 +698,6 @@ setInterval(() => { load({ keepEdits: true }).catch(() => {}); loadActivity(); }
   }
   function loadR(d) {
     R = d;
-    $("rSource").value = d.source || "";
     $("rRommFolder").value = d.options.romm_folder || "";
     $("rVar").checked = !!d.options.variants;
     $("rLayout").value = d.options.layout || "category";
@@ -658,7 +717,15 @@ setInterval(() => { load({ keepEdits: true }).catch(() => {}); loadActivity(); }
     } catch (e) { alert(e.message); }
   }
   ["rRommFolder", "rVar", "rLayout", "rKeep", "rLinkDir"].forEach(id => $(id).addEventListener("change", () => options()));
-  $("rSource").addEventListener("change", () => options({ source: $("rSource").value }));
+  const addSource = () => {
+    const v = $("rSourceNew").value.trim();
+    if (!v) return;
+    $("rSourceNew").value = "";
+    options({ sources: [...R.sources, v] });
+  };
+  $("rSourceAdd").onclick = addSource;
+  $("rSourceNew").addEventListener("keydown", (e) => { if (e.key === "Enter") addSource(); });
+  $("rFilter").addEventListener("change", () => { show = $("rFilter").value; render(); });
   $("btnRomm").onclick = async () => {
     $("rommDlg").showModal(); $("rOut").textContent = "Loading…";
     try { loadR(await api("GET", "/api/romm")); } catch (e) { $("rOut").textContent = e.message; }
