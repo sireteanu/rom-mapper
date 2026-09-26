@@ -46,6 +46,8 @@ LOCATION_ROW = "Media Location"
 RESERVED = {TOGGLE_ROW, LOCATION_ROW}
 
 DEFAULT_SETTINGS = {
+    # source folders for the mapping grid: [{"path", "label", "depth"}]; [] = SRC_BASE (one level)
+    "sources": [],
     "scan_enabled": True,
     "scan_interval_minutes": 60,
     "auto_add_new": True,
@@ -219,7 +221,7 @@ def validate_mapping(m):
             continue
         if folder in RESERVED:
             errors.append(f"'{folder}' is a reserved row name.")
-        elif err := bad_path_part(folder, allow_slash=False):
+        elif err := bad_path_part(folder, allow_slash=True):
             errors.append(f"Folder '{folder}' {err}.")
         if folder in seen:
             errors.append(f"Folder '{folder}' appears twice.")
@@ -235,15 +237,100 @@ def validate_mapping(m):
 
 # ---------------------------------------------------------------- scanning
 
-def list_source_folders():
-    if not os.path.isdir(SRC_BASE):
-        raise RuntimeError(f"ROM source folder not found: {SRC_BASE} (is the volume mounted?)")
-    names = []
-    for entry in os.scandir(SRC_BASE):
-        if entry.name.startswith(".") or not entry.is_dir():
-            continue
-        names.append(entry.name)
-    return sorted(names, key=str.lower)
+SKIP_DIRS = {"media"}               # linked through the frontend's "link media/ folders" option
+
+
+def clean_label(text):
+    out = "".join(c for c in text if c not in "/\\=;,:\n\r").strip() or "roms"
+    return out
+
+
+def get_sources(settings=None):
+    """The grid's source folders in order: [{"path", "label", "depth"}]. Without a saved list:
+    SRC_BASE (several separated by ";"), looked at one level deep - the original behaviour."""
+    settings = settings or load_state()["settings"]
+    src = [dict(x) for x in settings.get("sources") or [] if x.get("path")]
+    if not src:
+        labels = set()
+        for path in [p.strip().rstrip("/") for p in SRC_BASE.split(";") if p.strip()]:
+            label = unique_label(clean_label(os.path.basename(path)), labels)
+            labels.add(label)
+            src.append({"path": path, "label": label, "depth": 1})
+    for x in src:
+        x["depth"] = max(1, min(6, int(x.get("depth") or 1)))
+    return src
+
+
+def unique_label(label, taken):
+    if label not in taken:
+        return label
+    n = 2
+    while f"{label}-{n}" in taken:
+        n += 1
+    return f"{label}-{n}"
+
+
+def sources_env(sources):
+    """For rom-mapper.sh: "label=path;label=path" (first = where folders without a label are)."""
+    return ";".join(f"{x['label']}={x['path']}" for x in sources)
+
+
+def split_key(key, sources):
+    """CSV folder column -> (source, path inside it). "lolroms/Nintendo/Super Famicom" -> the
+    lolroms source; a key without a known label belongs to the first source (older CSVs)."""
+    head, _, rest = key.partition("/")
+    for x in sources:
+        if x["label"] == head:
+            return x, rest
+    return (sources[0] if sources else None), key
+
+
+def key_path(key, sources):
+    src, rest = split_key(key, sources)
+    if src is None:
+        return None
+    return os.path.join(src["path"], rest) if rest else src["path"]
+
+
+def full_key(key, sources):
+    """Show and save every row with its source's label in front."""
+    src, rest = split_key(key, sources)
+    if src is None:
+        return key
+    return f"{src['label']}/{rest}" if rest else src["label"]
+
+
+def list_source_folders(sources=None):
+    """Every folder in the source folders down to each one's depth, as "label/path" keys.
+    Raises RuntimeError naming the first source folder that isn't there."""
+    sources = sources if sources is not None else get_sources()
+    if not sources:
+        raise RuntimeError("No source folder is set - add one under Source folders.")
+    out = []
+    for src in sources:
+        base = src["path"]
+        if not os.path.isdir(base):
+            raise RuntimeError(f"Source folder not found: {base} (is it inside the folder mounted into the container?)")
+
+        def walk(path, rel, depth):
+            try:
+                entries = sorted(os.scandir(path), key=lambda e: e.name.lower())
+            except OSError:
+                return
+            for e in entries:
+                if e.name.startswith(".") or e.name.lower() in SKIP_DIRS:
+                    continue
+                try:
+                    if e.is_symlink() or not e.is_dir():
+                        continue
+                except OSError:
+                    continue
+                r = f"{rel}/{e.name}" if rel else e.name
+                out.append(f"{src['label']}/{r}")
+                if depth > 1:
+                    walk(e.path, r, depth - 1)
+        walk(base, "", src["depth"])
+    return out
 
 
 def build_view():
@@ -252,30 +339,34 @@ def build_view():
         raw = read_raw()
         m = parse_mapping(raw)
         state = load_state()
+    sources = get_sources(state["settings"])
     disk_error = None
     try:
-        disk = list_source_folders()
+        disk = list_source_folders(sources)
     except RuntimeError as e:
         disk, disk_error = [], str(e)
-    disk_set = set(disk)
+    for r in m["rows"]:
+        r["folder"] = full_key(r["folder"], sources)
     in_csv = {r["folder"] for r in m["rows"]}
 
     for r in m["rows"]:
-        if not disk_error and r["folder"] not in disk_set:
+        path = key_path(r["folder"], sources)
+        if not disk_error and not (path and os.path.isdir(path)):
             r["status"] = "missing"
         elif any(r["values"]):
             r["status"] = "mapped"
         else:
             r["status"] = "unmapped"
     for name in disk:
-        if name not in in_csv and not bad_path_part(name, allow_slash=False):
+        if name not in in_csv and not bad_path_part(name, allow_slash=True):
             m["rows"].append({"folder": name, "values": [""] * len(m["frontends"]), "status": "new"})
 
     return {
         **m,
         "version": version_of(raw),
         "disk_error": disk_error,
-        "paths": {"csv": INPUT_CSV, "src": SRC_BASE, "dest": DEST_PATH},
+        "paths": {"csv": INPUT_CSV, "src": "; ".join(x["path"] for x in sources), "dest": DEST_PATH},
+        "sources": sources,
         "settings": state["settings"],
         "last_scan": state["last_scan"],
         "last_sync": state["last_sync"],
@@ -288,19 +379,22 @@ def run_scan(trigger):
         raw = read_raw()
         m = parse_mapping(raw)
         settings = load_state()["settings"]
+        sources = get_sources(settings)
         try:
-            disk = list_source_folders()
+            disk = list_source_folders(sources)
         except RuntimeError as e:
             log(f"Scan ({trigger}) failed: {e}")
             result = {"time": now_iso(), "ok": False, "error": str(e), "new": [], "missing": [], "added": 0}
             update_state(last_scan=result)
             return result
 
+        for r in m["rows"]:
+            r["folder"] = full_key(r["folder"], sources)
         in_csv = {r["folder"] for r in m["rows"]}
-        disk_set = set(disk)
-        unsupported = [d for d in disk if bad_path_part(d, allow_slash=False)]
+        unsupported = [d for d in disk if bad_path_part(d, allow_slash=True)]
         new = [d for d in disk if d not in in_csv and d not in unsupported]
-        missing = [r["folder"] for r in m["rows"] if r["folder"] not in disk_set]
+        missing = [r["folder"] for r in m["rows"]
+                   if not os.path.isdir(key_path(r["folder"], sources) or "/nonexistent")]
 
         added = 0
         if new and settings["auto_add_new"]:
@@ -338,7 +432,9 @@ def run_sync(trigger):
     with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
         f.write(raw)
     try:
-        env = {**os.environ, "INPUT_CSV": snapshot, "SRC_BASE": SRC_BASE, "DEST_PATH": DEST_PATH}
+        sources = get_sources()
+        env = {**os.environ, "INPUT_CSV": snapshot, "SRC_BASE": sources[0]["path"] if sources else SRC_BASE,
+               "SOURCES": sources_env(sources), "DEST_PATH": DEST_PATH}
         proc = subprocess.run(
             [BASH_BIN, SYNC_SCRIPT], env=env, capture_output=True, text=True, timeout=3600
         )
@@ -573,6 +669,7 @@ def api_sync_status():
 def api_settings():
     body = request.get_json(force=True)
     s = dict(DEFAULT_SETTINGS)
+    s["sources"] = load_state()["settings"].get("sources") or []
     try:
         s["scan_enabled"] = bool(body.get("scan_enabled"))
         s["auto_add_new"] = bool(body.get("auto_add_new"))
@@ -654,6 +751,50 @@ def api_romm_links():
             cur["keep_links"] = True          # from now on kept up to date with every scan
             romm_save(cur)
     return jsonify({**romm_view(), "applied": {**res, "text": text}})
+
+
+@app.put("/api/sources")
+def api_sources():
+    """Save the grid's source folders: [{"path", "depth", "label"?}] in order."""
+    body = request.get_json(force=True) or {}
+    current = {x["path"]: x for x in get_sources()}
+    out, labels = [], set()
+    for x in body.get("sources") or []:
+        path = str(x.get("path") or "").strip().rstrip("/")
+        if not path:
+            continue
+        if not path.startswith("/"):
+            return jsonify({"error": f"{path}: a source folder must be a full path starting with /"}), 400
+        if any(o["path"] == path for o in out):
+            continue
+        try:
+            depth = max(1, min(6, int(x.get("depth") or 1)))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Depth must be a number from 1 to 6."}), 400
+        # a folder keeps its label (the CSV refers to it); new ones get their folder name
+        label = (current.get(path) or {}).get("label") or clean_label(os.path.basename(path))
+        label = unique_label(label, labels)
+        labels.add(label)
+        out.append({"path": path, "label": label, "depth": depth})
+    for a in out:
+        for b in out:
+            if a is not b and (b["path"] + "/").startswith(a["path"] + "/"):
+                return jsonify({"error": f"{b['path']} is inside {a['path']} - raise the depth of "
+                                         f"{a['path']} instead of listing both."}), 400
+    with csv_lock:
+        state = load_state()
+        old = get_sources(state["settings"])
+        # rows written without a label belonged to the first folder: keep them pointing there
+        raw = read_raw()
+        m = parse_mapping(raw)
+        if m["rows"] and old and (not out or old[0]["path"] != out[0]["path"]):
+            for r in m["rows"]:
+                r["folder"] = full_key(r["folder"], old)
+            write_mapping(m)
+        state["settings"]["sources"] = out
+        save_state(state)
+    log("Source folders: " + (", ".join(f"{x['path']} ({x['depth']} deep)" for x in out) or "none"))
+    return jsonify({"ok": True, "sources": get_sources()})
 
 
 @app.get("/api/activity")

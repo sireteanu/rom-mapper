@@ -10,20 +10,18 @@ services:
     environment:
       TZ: ${TZ:-UTC}
       INPUT_CSV: /config/Rom_Mapping.csv
+      # First source folder for the grid until you set the list under "Source folders" in the UI
       SRC_BASE: ${ROMS_PATH}
       DEST_PATH: ${MAPPING_PATH}
-      # RomM: the lolroms download folder (can also be set in the web UI)
+      # RomM download folders (";"-separated) until you set them in the RomM dialog
       ROMM_SOURCE: ${ROMM_SOURCE:-}
     volumes:
       # Your private CSV + the UI's schedule/state file live here on the host.
       # Read-write so the UI can save mappings (a .bak is kept on every save).
       - ${CONFIG_DIR}:/config
-      # IMPORTANT: mount the emulation share at the SAME path inside the
-      # container as on the host. The script creates absolute symlinks, so the
-      # targets must resolve identically outside the container.
+      # ONE folder that contains everything rom-mapper uses - the ROM/source folders, the mapping
+      # folder and RomM's download folders (e.g. /mnt/user) - mounted at the SAME path inside the
+      # container as on the host. The links must resolve the same way outside the container.
+      # Pick and change folders in the web UI; no extra mappings needed.
       - ${EMULATION_ROOT}:${EMULATION_ROOT}
-      # RomM (optional): the folder that holds the lolroms downloads (e.g. Rom Sync's), also at the
-      # same path. ROM Mapper writes RomM's platform links next to the download folder, so the
-      # container needs write access here. Remove this line if you don't use the RomM section.
-      - ${ROMM_ROOT:-/path/to/downloads}:${ROMM_ROOT:-/path/to/downloads}
     restart: unless-stopped

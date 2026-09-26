@@ -5,6 +5,10 @@ set -euo pipefail
 INPUT_CSV="${INPUT_CSV:-/config/Rom_Mapping.csv}"
 SRC_BASE="${SRC_BASE:-/path/to/roms}"
 DEST_PATH="${DEST_PATH:-/path/to/mapping}"
+# Several source folders: SOURCES="label=/path;label=/path" (the web UI sets this). The CSV's
+# Folder column is then "label/path inside it" (e.g. lolroms/Nintendo/Super Famicom); a folder
+# without a known label is looked up in the first source (SRC_BASE when SOURCES is empty).
+SOURCES="${SOURCES:-}"
 # -----------------------------------------------------------
 
 if [[ ! -f "$INPUT_CSV" ]]; then
@@ -12,18 +16,52 @@ if [[ ! -f "$INPUT_CSV" ]]; then
   exit 1
 fi
 
-if [[ ! -d "$SRC_BASE" ]]; then
-  echo "Error: ROM source directory not found at $SRC_BASE (is the volume mounted?)"
-  exit 1
+declare -A SRC_BY_LABEL
+FIRST_SRC=""
+if [[ -n "$SOURCES" ]]; then
+  IFS=';' read -r -a source_pairs <<< "$SOURCES"
+  for pair in "${source_pairs[@]}"; do
+    label="${pair%%=*}"; path="${pair#*=}"
+    [[ -z "$label" || -z "$path" || "$pair" != *=* ]] && continue
+    SRC_BY_LABEL["$label"]="$path"
+    [[ -z "$FIRST_SRC" ]] && FIRST_SRC="$path"
+  done
+fi
+if [[ -z "$FIRST_SRC" ]]; then
+  FIRST_SRC="$SRC_BASE"
+  SRC_BY_LABEL["$(basename "$SRC_BASE")"]="$SRC_BASE"
 fi
 
-# Guard against wiping something important if DEST_PATH is misconfigured
+for path in "${SRC_BY_LABEL[@]}"; do
+  if [[ ! -d "$path" ]]; then
+    echo "Error: ROM source directory not found at $path (is the volume mounted?)"
+    exit 1
+  fi
+  # Guard against wiping something important if DEST_PATH is misconfigured
+  case "$DEST_PATH" in
+    "$path"|"$path"/*)
+      echo "Error: Refusing to use DEST_PATH='$DEST_PATH' (it is inside the source folder $path)"
+      exit 1
+      ;;
+  esac
+done
 case "$DEST_PATH" in
-  ""|"/"|"/mnt"|"/mnt/user"|"$SRC_BASE"|"$SRC_BASE"/*)
+  ""|"/"|"/mnt"|"/mnt/user")
     echo "Error: Refusing to use DEST_PATH='$DEST_PATH'"
     exit 1
     ;;
 esac
+
+# Folder column -> folder on disk
+resolve_src() {
+  local key="$1" label="${1%%/*}" rest=""
+  [[ "$key" == */* ]] && rest="${key#*/}"
+  if [[ -n "${SRC_BY_LABEL[$label]+x}" ]]; then
+    if [[ -n "$rest" ]]; then printf '%s/%s' "${SRC_BY_LABEL[$label]}" "$rest"; else printf '%s' "${SRC_BY_LABEL[$label]}"; fi
+  else
+    printf '%s/%s' "$FIRST_SRC" "$key"
+  fi
+}
 
 # Strip carriage returns and a UTF-8 BOM (Excel likes to add both)
 clean() { sed -e 's/\r$//' -e '1s/^\xEF\xBB\xBF//' "$INPUT_CSV"; }
@@ -83,7 +121,7 @@ clean | tail -n +2 | while IFS=',' read -r -a fields; do
     [[ -z "$map_val" ]] && continue
 
     # Define ROM Paths
-    rom_src="$SRC_BASE/$folder"
+    rom_src="$(resolve_src "$folder")"
     rom_dest="$DEST_PATH/$map_name/$map_val"
 
     # CREATE ROM SYMLINK
