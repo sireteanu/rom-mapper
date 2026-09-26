@@ -68,6 +68,17 @@
   tr.missing td { background: var(--missing-bg); }
   td input[type=text] { width: 200px; }
   td input[type=text]:placeholder-shown { border-style: dashed; }
+  td input.dup { border-color: var(--warn); color: var(--warn); }
+  dialog.srcdlg { max-width: min(760px, 95vw); }
+  .srcdlg .src { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 6px;
+                 padding: 4px 6px 4px 10px; background: var(--bg); margin-bottom: 4px; }
+  .srcdlg .src .lbl { font-weight: 600; min-width: 70px; }
+  .srcdlg .src code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+  .srcdlg .src select { font: inherit; color: var(--text); background: var(--input-bg); border: 1px solid var(--border); border-radius: 5px; padding: 2px 4px; }
+  .srcdlg .src button { padding: 2px 8px; }
+  .srcdlg .add { display: flex; gap: 6px; margin-top: 8px; }
+  .srcdlg .add input { flex: 1; }
+  .srcdlg .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
   .fe-head { display: flex; flex-direction: column; gap: 4px; width: 200px; }
   .fe-head .row { display: flex; gap: 4px; align-items: center; }
   .fe-head .fe-name { font-weight: 600; flex: 1; min-width: 0; }
@@ -199,6 +210,8 @@
   <input type="search" id="search" placeholder="Search folders or mappings…">
   <div id="filters" class="actions"></div>
   <span class="spacer"></span>
+  <span id="dupNote" class="warn" hidden></span>
+  <button id="btnSources" title="Which folders the grid reads, and how deep">Source folders</button>
   <button id="btnRemoveMissing" hidden class="danger">Remove missing rows</button>
   <button id="btnAddFolder">+ Folder</button>
   <button id="btnAddFe">+ Frontend</button>
@@ -212,6 +225,18 @@
   <pre id="outPre"></pre>
   <form method="dialog" style="text-align:right"><button>Close</button></form>
 </dialog>
+<dialog id="srcDlg" class="srcdlg">
+  <h3 style="margin-top:0">Source folders</h3>
+  <p class="hint">The folders the grid reads. Rows show the folder's name in front (<code>roms/snes</code>,
+    <code>lolroms/Nintendo/Super Famicom</code>). <b>Depth</b>: 1 = the folders directly inside it, 2 = also the folders
+    inside those, and so on. Folders named <code>media</code> are skipped (use "link media/ folders").
+    Everything must be inside the folder mounted into the container.</p>
+  <div id="srcList"></div>
+  <div class="add"><input type="text" id="srcNew" placeholder="/path/to/downloads/lolroms"><button id="srcAdd" type="button">Add folder</button></div>
+  <p id="srcErr" class="bad" hidden></p>
+  <div class="foot"><button id="srcCancel" type="button">Cancel</button><button id="srcSave" class="primary" type="button">Save &amp; scan</button></div>
+</dialog>
+
 <dialog id="rommDlg" class="romm">
   <div class="head"><h2>RomM</h2><form method="dialog"><button aria-label="Close">✕</button></form></div>
   <p class="intro">RomM sees each folder under its platform name through a <b>platform link</b>
@@ -336,7 +361,9 @@ async function load({ keepEdits = false } = {}) {
 
 function renderMeta() {
   const p = model.paths;
-  $("paths").innerHTML = `CSV <code>${esc(p.csv)}</code> · ROMs <code>${esc(p.src)}</code> · Links <code>${esc(p.dest)}</code>`;
+  $("paths").innerHTML = `CSV <code>${esc(p.csv)}</code> · ROMs ` +
+    (model.sources || []).map(x => `<code title="${esc(x.path)}">${esc(x.label)}: ${esc(x.path)} (${x.depth} deep)</code>`).join(" ") +
+    ` · Links <code>${esc(p.dest)}</code>`;
   $("banner").innerHTML = model.disk_error ? `<div class="banner">${esc(model.disk_error)}</div>` : "";
 
   const sc = model.last_scan;
@@ -400,6 +427,25 @@ function renderGrid() {
   $("grid").innerHTML = model.rows.length || fes.length ? head + body
     : `<tbody><tr><td class="empty">No folders yet. Click “Scan now” or “+ Folder”.</td></tr></tbody>`;
   applyFilter();
+  markDuplicates();
+}
+
+// two rows giving the same name to one frontend: only the first gets the link
+function markDuplicates() {
+  const inputs = document.querySelectorAll("#grid tbody input[data-fi]");
+  const seen = {};
+  let n = 0;
+  inputs.forEach(inp => {
+    inp.classList.remove("dup"); inp.removeAttribute("title");
+    const v = inp.value.trim(); if (!v) return;
+    const key = inp.dataset.fi + "\u0000" + v.toLowerCase();
+    if (key in seen) {
+      inp.classList.add("dup"); n++;
+      inp.title = `Also given to ${model.rows[seen[key]].folder} above - only the first row gets this link`;
+    } else seen[key] = +inp.dataset.ri;
+  });
+  $("dupNote").hidden = !n;
+  $("dupNote").textContent = n ? `⚠ ${n} duplicate name${n > 1 ? "s" : ""} (orange) - only the first row gets the link` : "";
 }
 
 function rowStatus(r) {
@@ -429,6 +475,7 @@ $("grid").addEventListener("input", (e) => {
     r.values[+t.dataset.fi] = t.value;
     if (r.status !== "missing" && r.status !== "new") r.status = rowStatus(r);
     setDirty(true);
+    markDuplicates();
   } else if (t.dataset.fe !== undefined) {
     const f = model.frontends[+t.dataset.fe];
     if (t.type === "checkbox") {
@@ -467,7 +514,9 @@ $("filters").addEventListener("click", (e) => {
 $("search").addEventListener("input", applyFilter);
 
 $("btnAddFolder").onclick = () => {
-  const name = prompt("Folder name (as it is / will be under the ROM folder):");
+  const first = (model.sources || [])[0];
+  const name = prompt(`Folder, with its source folder's name in front - for example ${first ? first.label : "roms"}/snes` +
+    ((model.sources || []).length > 1 ? ` (source folders: ${model.sources.map(x => x.label).join(", ")})` : "") + ":");
   if (!name || !name.trim()) return;
   if (model.rows.some(r => r.folder === name.trim())) return toast("That folder is already in the list.");
   model.rows.push({ folder: name.trim(), values: model.frontends.map(() => ""), status: "unmapped" });
@@ -558,6 +607,51 @@ window.addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault()
 
 // Refresh periodically to pick up scheduled scans/resyncs (keeps your edits if you have any).
 setInterval(() => { load({ keepEdits: true }).catch(() => {}); loadActivity(); }, 30000);
+
+// ------------------------------------------------------------- source folders
+let srcEdit = [];
+function renderSources() {
+  const box = $("srcList"); box.innerHTML = "";
+  srcEdit.forEach((x, i) => {
+    const div = document.createElement("div"); div.className = "src";
+    div.innerHTML = `<span class="lbl"></span><code></code>
+      <label class="hint">Depth <select>${[1, 2, 3, 4, 5, 6].map(n => `<option>${n}</option>`).join("")}</select></label>
+      <button type="button" data-up title="Move up">↑</button><button type="button" data-down title="Move down">↓</button>
+      <button type="button" data-del title="Stop reading this folder (nothing is deleted)">✕</button>`;
+    div.querySelector(".lbl").textContent = x.label || "(new)";
+    div.querySelector("code").textContent = x.path; div.querySelector("code").title = x.path;
+    const sel = div.querySelector("select"); sel.value = String(x.depth || 1);
+    sel.onchange = () => { x.depth = +sel.value; };
+    div.querySelector("[data-up]").disabled = i === 0;
+    div.querySelector("[data-down]").disabled = i === srcEdit.length - 1;
+    div.querySelector("[data-up]").onclick = () => { srcEdit.splice(i - 1, 0, srcEdit.splice(i, 1)[0]); renderSources(); };
+    div.querySelector("[data-down]").onclick = () => { srcEdit.splice(i + 1, 0, srcEdit.splice(i, 1)[0]); renderSources(); };
+    div.querySelector("[data-del]").onclick = () => { srcEdit.splice(i, 1); renderSources(); };
+    box.append(div);
+  });
+  if (!srcEdit.length) box.innerHTML = `<div class="hint">No source folder - add one below.</div>`;
+}
+$("btnSources").onclick = () => {
+  srcEdit = (model.sources || []).map(x => ({ ...x }));
+  $("srcErr").hidden = true; renderSources(); $("srcDlg").showModal();
+};
+const srcAdd = () => {
+  const v = $("srcNew").value.trim(); if (!v) return;
+  srcEdit.push({ path: v, depth: 2, label: "" }); $("srcNew").value = ""; renderSources();
+};
+$("srcAdd").onclick = srcAdd;
+$("srcNew").addEventListener("keydown", (e) => { if (e.key === "Enter") srcAdd(); });
+$("srcCancel").onclick = () => $("srcDlg").close();
+$("srcSave").onclick = async () => {
+  if (dirty && !confirm("You have unsaved changes in the grid. Scanning reloads it and discards them. Continue?")) return;
+  try {
+    await api("PUT", "/api/sources", { sources: srcEdit.map(x => ({ path: x.path, depth: x.depth || 1 })) });
+    $("srcDlg").close();
+    const r = await api("POST", "/api/scan");
+    toast(r.ok ? `Scan done: ${r.new.length} new, ${r.missing.length} missing` : `Scan failed: ${r.error}`);
+    await load(); loadActivity();
+  } catch (e) { $("srcErr").textContent = e.message; $("srcErr").hidden = false; }
+};
 
 // ------------------------------------------------------------- RomM
 (() => {
