@@ -3,15 +3,24 @@
 Builds per-frontend ROM folder layouts (Batocera/RGS, RetroBat, Knulli, ...) as
 **symlinks** into a single master ROM library, driven by a CSV mapping file.
 It includes a web UI for editing the mappings and scheduling scans and resyncs, and a
-**RomM** section that maps a lolroms download folder to RomM platforms (see [RomM](#romm)).
+**RomM** section that maps download folders such as lolroms to RomM platforms (see [RomM](#romm)).
+Everything lives under one folder mounted into the container; source folders are picked in the UI.
 
 ## Web UI
 
 Open `http://<server>:8085`.
 
-- **Mapping grid:** one row for each folder in the ROM folder and one column for each frontend.
+- **Mapping grid:** one row for each folder in the source folders and one column for each frontend.
   Type the folder name that frontend should see, or leave the cell blank to create no link.
   Double-click an empty cell to fill in the source folder name.
+- **Source folders:** the folders the grid reads, in order - for example `/path/to/roms`,
+  `/path/to/downloads/lolroms` and `/path/to/downloads/rommer`. Each has a **depth**: 1 = the folders
+  directly inside it (the original behaviour), 2 = also the folders inside those
+  (`lolroms/Nintendo/Super Famicom`), up to 6. Rows show the source folder's name in front
+  (`roms/snes`, `lolroms/Nintendo/Super Famicom`, `rommer/snes`); folders named `media` are
+  skipped (use *link media/ folders*). Without a saved list, `SRC_BASE` is used, one level deep.
+- **Duplicates:** when two rows give the same name to one frontend, the later ones turn orange and
+  the toolbar says how many - only the first row gets that link.
 - **Row status:** *New* means the folder is on disk but not yet in the CSV. *Missing* means
   the folder is in the CSV but no longer on disk. *Unmapped* means it has no mappings yet.
   Filter by status, or click **Remove missing rows** to clean up.
@@ -75,9 +84,10 @@ first download folder (`Konami - Picno` -> `lolroms/Konami - Picno`) and a links
 Rom Sync's container is dropped. Rom Sync's own RomM Mapper keeps working for now; once this one is set up, turn off
 *Update the links after every sync* there so only one app manages the links.
 
-Setup: mount the folder that holds the download folders at the **same path** (`ROMM_ROOT` in
-`docker-compose.yml`, writable - the links go there) and add the folders in the dialog (or set
-`ROMM_SOURCE`, several separated by `;`, used until the dialog saves a list). Without Docker:
+Setup: the download folders must be inside the folder mounted into the container (`EMULATION_ROOT`,
+e.g. `/mnt/user`), and the folder that holds them must be writable (the links go there). Add the
+folders in the dialog (or set `ROMM_SOURCE`, several separated by `;`, used until the dialog saves
+a list). Without Docker:
 `ROMM_SOURCE="/path/to/lolroms;/path/to/rommer" python app/server.py`.
 
 ## CSV format
@@ -87,13 +97,18 @@ Setup: mount the folder that holds the download folders at the **same path** (`R
 | Header | `Folder`, then one column per target frontend (e.g. `rgs,retrobat,knulli`) |
 | `Media Toggle` | `1` = also link each system's `media/` folder for that frontend |
 | `Media Location` | Sub-folder the media links go under (default `MEDIA_FULL`) |
-| Every other row | Source folder under `SRC_BASE`, then the folder name to use per frontend (blank = skip) |
+| Every other row | Source folder as `<source name>/<path>` (e.g. `lolroms/Nintendo/Super Famicom`), then the folder name to use per frontend (blank = skip) |
 
 On each resync, the script **deletes everything inside `DEST_PATH`** and rebuilds it:
 
 ```
-DEST_PATH/<frontend>/<mapped name>  ->  SRC_BASE/<folder>
+DEST_PATH/<frontend>/<mapped name>  ->  <source folder>/<path>
 ```
+
+The UI passes the source folders to the script as `SOURCES="roms=/path/to/roms;lolroms=/path/to/downloads/lolroms"`.
+A folder without a known source name in front (CSVs from before source folders, e.g. `snes`) is
+looked up in the first source folder (`SRC_BASE` when `SOURCES` isn't set), so old CSVs keep working.
+When two rows give one frontend the same name, the first row's link is made.
 
 Commas aren't supported in names (the script doesn't handle quoted CSV). The UI rejects them.
 
@@ -105,7 +120,7 @@ cd /path/to/appdata/rom-mapper && docker build -t rom-mapper .
 ```
 
 ```bash
-docker run -d --name rom-mapper --restart unless-stopped --user 99:100 -p 8085:8085 -e TZ=America/New_York -e SRC_BASE=/path/to/roms -e DEST_PATH=/path/to/mapping -v /path/to/appdata/rom-mapper:/config -v /path/to/shares:/path/to/shares -e ROMM_SOURCE=/path/to/downloads/lolroms -v /path/to/downloads:/path/to/downloads rom-mapper
+docker run -d --name rom-mapper --restart unless-stopped --user 99:100 -p 8085:8085 -e TZ=America/New_York -e SRC_BASE=/path/to/roms -e DEST_PATH=/path/to/mapping -v /path/to/appdata/rom-mapper:/config -v /mnt/user:/mnt/user rom-mapper
 ```
 
 The container then appears on the Docker tab. To update it, run `git pull`, rebuild,
@@ -118,12 +133,14 @@ cp .env.example .env   # edit the paths
 docker compose up -d --build
 ```
 
-### Why the share is mounted at the same path
+### One folder, mounted at the same path
 
-The script creates **absolute** symlinks. If the ROMs were mounted at e.g. `/roms`
-in the container, the links would point to `/roms/...`, which doesn't exist on the
-host. Mount `EMULATION_ROOT` at the identical path inside the container, and keep
-`ROMS_PATH` and `MAPPING_PATH` inside it.
+Mount one folder that contains everything rom-mapper uses (`EMULATION_ROOT`, e.g. `/mnt/user`,
+which covers every Unraid share) at the **identical path** inside the container. Source folders,
+the mapping folder and RomM's download folders are then just picked in the UI - no extra
+mappings when you add a folder. The script creates **absolute** symlinks: if the ROMs were
+mounted at e.g. `/roms` in the container, the links would point to `/roms/...`, which doesn't
+exist on the host.
 
 ### Permissions
 
