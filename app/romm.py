@@ -208,9 +208,9 @@ def suggest(name: str) -> Optional[str]:
 class Mapping:
     """Resolve every folder to a RomM role, then render the links and config.yml.
 
-    Several download folders ("roots", e.g. lolroms and rommer) can feed RomM. `folders` is
+    Several download folders ("roots", e.g. lolroms and collection) can feed RomM. `folders` is
     {path: (files directly in it, of which on disk)} with paths relative to the links folder, so
-    they start with a root ("lolroms/Nintendo/Super Famicom", "rommer/snes"); every path's
+    they start with a root ("lolroms/Nintendo/Super Famicom", "collection/snes"); every path's
     ancestors must be present (folders_from_roots guarantees that). `roots` is the list of roots
     in priority order: when two roots give the same platform, the first one is linked and the
     other is reported as a conflict (exclude it, or change the order). `links_dir` is the folder
@@ -288,7 +288,7 @@ class Mapping:
             r.update(kind=up["kind"], slug=up["slug"])
         elif name_of(path) in SLUGS and "/" not in self.inner(path):
             # a folder named exactly like a RomM platform right inside a download folder (a
-            # RomM-style collection: rommer/snes, rommer/psx)
+            # RomM-style collection: collection/snes, collection/psx)
             r.update(kind=PLATFORM, slug=name_of(path))
         return r
 
@@ -623,7 +623,7 @@ IGNORED_FILES = {"thumbs.db", "desktop.ini"}
 
 def folders_from_roots(links_dir: str, sources: list) -> tuple:
     """Read every download folder -> ({path relative to links_dir: (files, files)}, [roots]).
-    Folders above a root (e.g. "sets" for links_dir/sets/rommer) are added with no files."""
+    Folders above a root (e.g. "sets" for links_dir/sets/collection) are added with no files."""
     out = {"": (0, 0)}
     roots = []
     for src in sources:
