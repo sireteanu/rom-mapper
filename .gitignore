@@ -8,3 +8,6 @@ rom-mapper-state.json
 *.bak
 __pycache__/
 .venv/
+rom-mapper-mapping.json*
+romm-mapper.json
+.pytest_cache/
