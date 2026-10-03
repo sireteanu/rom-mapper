@@ -1,0 +1,39 @@
+# Changelog
+
+What changed in each ROM Mapper release. The section for a version becomes the text of its GitHub
+release. Newest first.
+
+## [Unreleased]
+
+## [1.0.0] - 2026-10-03
+
+The first numbered release. ROM Mapper started as a bash script driven by a CSV file; it is now a
+web app that stores everything itself.
+
+### New
+- **The mapping is stored in the app.** No CSV file to edit: the grid saves into the config folder
+  (with a backup of the previous version). An existing `Rom_Mapping.csv` is imported automatically
+  at the first start and every link stays where it was.
+- **Export and import.** Export downloads a CSV with every folder in your source folders, mapped or
+  not, ready to fill in; import loads one back, merged into the grid or replacing it, for you to
+  review before saving.
+- **Several source folders**, each read to its own depth (1 = the folders directly inside it, 2 =
+  also the folders inside those, and so on). Rows show the source folder's name in front.
+- **Duplicate names** for one frontend are highlighted; the first row gets the link.
+- **RomM section**: maps download folders to RomM platforms with platform links in one folder and a
+  generated `config.yml`; a dropdown per folder (any RomM platform, or exclude - which leaves the
+  folder and everything inside it out); several download folders with overlaps resolved by their
+  order; links kept up to date with every scan.
+- The version is shown next to the title.
+
+### Improved
+- **Resync changes only what differs.** Missing links are made, wrong ones corrected and unused ones
+  removed; links that are already right aren't touched, so frontends never see an empty folder
+  during a resync. Your own files in the mapping folder are kept.
+- **One folder mounted into the container covers everything**; folders are picked in the page.
+- The page reuses a fresh folder listing instead of reading the disk on every refresh.
+
+### Changed
+- `rom-mapper.sh` is replaced by the built-in resync (same links). For a one-off resync without the
+  page: `docker exec rom-mapper python /app/server.py --resync`.
+- The image no longer needs bash and the extra command-line tools.

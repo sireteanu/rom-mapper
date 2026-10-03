@@ -1,164 +1,283 @@
-# rom-mapper
+# ROM Mapper
 
-Builds per-frontend ROM folder layouts (Batocera/RGS, RetroBat, Knulli, ...) as
-**symlinks** into a single master ROM library, driven by a CSV mapping file.
-It includes a web UI for editing the mappings and scheduling scans and resyncs, and a
-**RomM** section that maps download folders such as lolroms to RomM platforms (see [RomM](#romm)).
-Everything lives under one folder mounted into the container; source folders are picked in the UI.
+ROM Mapper builds folder layouts for emulation frontends (Batocera/RGS, RetroBat, Knulli, ...)
+and for [RomM](https://github.com/rommapp/romm) out of **links** into your ROM folders. Nothing is
+copied or moved: each frontend gets its own folder of links, named the way that frontend expects,
+pointing at the one copy of your files.
 
-## Web UI
+It runs as a small web app in Docker (made for Unraid) and keeps the links up to date on a
+schedule.
 
-Open `http://<server>:8085`.
+- **New here?** Follow the [user guide](docs/user-guide.md).
+- **What changed?** See the [changelog](CHANGELOG.md) and the [releases](../../releases). The running
+  version is shown next to the title in the web page.
+- **Working on the code (people or AI assistants)?** This README is the full reference; coding
+  rules are in [CLAUDE.md](CLAUDE.md).
 
-- **Mapping grid:** one row for each folder in the source folders and one column for each frontend.
-  Type the folder name that frontend should see, or leave the cell blank to create no link.
-  Double-click an empty cell to fill in the source folder name.
-- **Source folders:** the folders the grid reads, in order - for example `/path/to/roms`,
-  `/path/to/downloads/lolroms` and `/path/to/downloads/rommer`. Each has a **depth**: 1 = the folders
-  directly inside it (the original behaviour), 2 = also the folders inside those
-  (`lolroms/Nintendo/Super Famicom`), up to 6. Rows show the source folder's name in front
-  (`roms/snes`, `lolroms/Nintendo/Super Famicom`, `rommer/snes`); folders named `media` are
-  skipped (use *link media/ folders*). Without a saved list, `SRC_BASE` is used, one level deep.
-- **Duplicates:** when two rows give the same name to one frontend, the later ones turn orange and
-  the toolbar says how many - only the first row gets that link.
-- **Row status:** *New* means the folder is on disk but not yet in the CSV. *Missing* means
-  the folder is in the CSV but no longer on disk. *Unmapped* means it has no mappings yet.
-  Filter by status, or click **Remove missing rows** to clean up.
-- **+ Folder:** pre-map a folder that doesn't exist yet. It shows as *Missing* until it
-  appears on disk. Its mappings are kept, and no link is created until then.
-- **+ Frontend:** adds a new output column. Each column can also link each system's `media/`
-  folder into a sub-folder (default `MEDIA_FULL`).
-- **Scan now:** re-reads the ROM folder for added or removed folders. **Scan every N min**
-  does the same on a schedule, and can add new folders to the CSV automatically (unmapped).
-- **Resync all:** deletes every link under the mapping folder and rebuilds them from the
-  saved CSV. **Resync every N h** does the same on a schedule. **Save & resync** saves
-  your edits and rebuilds the links in one step.
+---
 
-Saving writes `Rom_Mapping.csv` in the same plain format the script reads, and keeps the
-previous version as `Rom_Mapping.csv.bak`. Schedules and last-run info are stored in
-`rom-mapper-state.json` next to the CSV.
+## Contents
 
-> There is no login. Keep the port on your LAN.
+1. [Features](#features)
+2. [Install](#install)
+3. [How it works](#how-it-works)
+4. [RomM](#romm)
+5. [Settings and files](#settings-and-files)
+6. [Import and export](#import-and-export)
+7. [Upgrading from older versions](#upgrading-from-older-versions)
+8. [HTTP API](#http-api)
+9. [Code map](#code-map)
+10. [Development, tests and releases](#development-tests-and-releases)
 
-## RomM
+---
 
-The **RomM** button maps one or more download folders to [RomM](https://github.com/rommapp/romm)
-platforms - for example the lolroms folder [Rom Sync](https://github.com/sireteanu/rom-sync) keeps
-(`/path/to/downloads/lolroms`) and a RomM-style collection (`/path/to/downloads/rommer`). lolroms nests
-platforms (`Nintendo/Super Famicom/Satellaview`) and keeps variants in subfolders (`T-En`, `MSU-1`),
-while RomM wants one folder per platform. Nothing is moved:
+## Features
 
-- **Download folders**: a list in priority order (add, remove, move up/down). Every folder is
-  read from disk; rows in the table start with the folder's name (`lolroms/...`, `rommer/...`).
-  Folders named exactly like a RomM platform right inside a download folder (`rommer/snes`) get
-  that platform automatically; lolroms folders get it from built-in rules.
-- **Overlaps**: RomM can only have one folder per platform. When two download folders give the
-  same platform, the one **higher in the list** is linked; the other's rows say *not linked* and
-  a warning names both. **Overlaps only** in the filter shows just those rows. Exclude the one
-  you don't want, or change the order.
-- **Exclude**: choosing *exclude* for a folder leaves it **and everything inside it** out of
-  RomM (even subfolders the built-in rules would map), unless you pick something else for a
-  subfolder.
-
-- **Platform links**: relative links named after RomM's platforms are kept in the folder that holds
-  the download folders, e.g. in `/path/to/downloads`: `snes -> lolroms/Nintendo/Super Famicom`, `n64 -> rommer/n64`,
-  `satellaview -> lolroms/Nintendo/Super Famicom/Satellaview`. Map that one folder as RomM's roms
-  folder (`- /path/to/downloads:/romm/library/roms`; the **RomM compose** tab shows the line).
-  **Create / update links now** makes them and turns on *Update the links with every scan*; from
-  then on every scheduled scan keeps them current. Only links pointing into the download folder
-  are ever changed or removed; real folders and other links are left alone. All download
-  folders must be inside the links folder.
-- **config.yml**: merge the generated section into RomM's `config.yml` - the download folders
-  themselves aren't platforms (`exclude.platforms`), which subfolders belong to a platform
-  (`{category}` levels by default), which to ignore, and `system.versions` for arcade boards RomM
-  has no platform for. Restart RomM and scan its library.
-- **Folder table**: every folder in the download folder that holds files, with its RomM platform
-  from built-in rules for lolroms' tree. Pick another platform or **exclude** from the dropdown;
-  each choice is saved at once. BIOS folders become firmware automatically (copy them to RomM's
-  bios folder). **RomM platforms list** shows every platform RomM knows.
-
-Settings and choices are stored in `romm-mapper.json` next to the CSV (`sources` = the download
-folders in order, `map` = your choices by `<download folder>/<path>`). Rom Sync's
-`romm-mapper.json` (from its config folder) can be copied here: its choices are converted to the
-first download folder (`Konami - Picno` -> `lolroms/Konami - Picno`) and a links folder from inside
-Rom Sync's container is dropped. Rom Sync's own RomM Mapper keeps working for now; once this one is set up, turn off
-*Update the links after every sync* there so only one app manages the links.
-
-Setup: the download folders must be inside the folder mounted into the container (`EMULATION_ROOT`,
-e.g. `/mnt/user`), and the folder that holds them must be writable (the links go there). Add the
-folders in the dialog (or set `ROMM_SOURCE`, several separated by `;`, used until the dialog saves
-a list). Without Docker:
-`ROMM_SOURCE="/path/to/lolroms;/path/to/rommer" python app/server.py`.
-
-## CSV format
-
-| Row | Meaning |
+| Area | What it does |
 |---|---|
-| Header | `Folder`, then one column per target frontend (e.g. `rgs,retrobat,knulli`) |
-| `Media Toggle` | `1` = also link each system's `media/` folder for that frontend |
-| `Media Location` | Sub-folder the media links go under (default `MEDIA_FULL`) |
-| Every other row | Source folder as `<source name>/<path>` (e.g. `lolroms/Nintendo/Super Famicom`), then the folder name to use per frontend (blank = skip) |
+| Mapping grid | One row per folder found in your source folders, one column per frontend. Type the name a frontend should see; blank = no link. Double-click an empty cell to use the folder's own name. |
+| Source folders | Any number of folders, each read to a chosen depth (1 = folders directly inside it, 2 = also the folders inside those, up to 6). Rows show the source folder's name in front: `<source>/<path>`. |
+| Frontends | Add or remove columns. Each frontend can also link every system's `media/` folder into a sub-folder (default `MEDIA_FULL`). |
+| Links | **Resync all** makes the mapping folder match the mapping: missing links are made, wrong ones corrected, unused ones removed - nothing else is touched, and frontends never see an empty folder. |
+| Status | Rows are marked *New* (on disk, not mapped yet), *Unmapped*, *Missing* (mapped, gone from disk). Filter by status, search, remove missing rows. Duplicate names for one frontend are highlighted (the first row gets the link). |
+| Schedule | Scan every N minutes (optionally adding new folders automatically) and resync every N hours. |
+| Import / export | Download the mapping as a CSV that lists **every** folder found (ready to fill in, e.g. in a spreadsheet) and load one back - merged into the grid or replacing it. |
+| RomM | Maps one or more download folders to RomM platforms: platform links in one folder, a generated `config.yml`, per-folder choices, overlap handling. |
+| Storage | Everything is stored by the app in its config folder (JSON); no files to edit by hand. |
 
-On each resync, the script **deletes everything inside `DEST_PATH`** and rebuilds it:
+---
 
-```
-DEST_PATH/<frontend>/<mapped name>  ->  <source folder>/<path>
-```
+## Install
 
-The UI passes the source folders to the script as `SOURCES="roms=/path/to/roms;lolroms=/path/to/downloads/lolroms"`.
-A folder without a known source name in front (CSVs from before source folders, e.g. `snes`) is
-looked up in the first source folder (`SRC_BASE` when `SOURCES` isn't set), so old CSVs keep working.
-When two rows give one frontend the same name, the first row's link is made.
+### Docker (Unraid or any Docker host)
 
-Commas aren't supported in names (the script doesn't handle quoted CSV). The UI rejects them.
-
-## Run on Unraid
+ROM Mapper needs **one** folder mounted at the **same path** inside the container as on the host,
+containing everything it uses: your source folders, the mapping folder and RomM's download
+folders. Pick a folder high enough to cover them all (on Unraid, the user-shares folder covers every
+share). Folders are then chosen in the web page - adding one never needs another mapping.
 
 ```bash
 git clone https://github.com/sireteanu/rom-mapper.git /path/to/appdata/rom-mapper
-cd /path/to/appdata/rom-mapper && docker build -t rom-mapper .
-```
-
-```bash
-docker run -d --name rom-mapper --restart unless-stopped --user 99:100 -p 8085:8085 -e TZ=America/New_York -e SRC_BASE=/path/to/roms -e DEST_PATH=/path/to/mapping -v /path/to/appdata/rom-mapper:/config -v /mnt/user:/mnt/user rom-mapper
-```
-
-The container then appears on the Docker tab. To update it, run `git pull`, rebuild,
-`docker rm -f rom-mapper`, and run the command above again.
-
-Or use Docker Compose (on Unraid, install the *Docker Compose Manager* plugin):
-
-```bash
-cp .env.example .env   # edit the paths
+cd /path/to/appdata/rom-mapper
+cp .env.example .env     # set the paths
 docker compose up -d --build
 ```
 
-### One folder, mounted at the same path
+`.env`:
 
-Mount one folder that contains everything rom-mapper uses (`EMULATION_ROOT`, e.g. `/mnt/user`,
-which covers every Unraid share) at the **identical path** inside the container. Source folders,
-the mapping folder and RomM's download folders are then just picked in the UI - no extra
-mappings when you add a folder. The script creates **absolute** symlinks: if the ROMs were
-mounted at e.g. `/roms` in the container, the links would point to `/roms/...`, which doesn't
-exist on the host.
+| Variable | Meaning |
+|---|---|
+| `CONFIG_DIR` | Host folder for the app's settings and mapping (mounted as `/config`) |
+| `EMULATION_ROOT` | The one folder mounted at the same path (contains everything below) |
+| `ROMS_PATH` | First source folder, used until you set the list in the page |
+| `MAPPING_PATH` | The mapping folder: one sub-folder of links per frontend |
+| `ROMM_SOURCE` | Optional: RomM download folders (`;`-separated) until set in the page |
+| `PUID` / `PGID` | User/group the container runs as (Unraid: 99/100) |
+| `WEBUI_PORT` | Port of the web page (default 8085) |
+| `TZ` | Time zone for the schedule |
 
-### Permissions
-
-The container runs as `99:100` (`nobody:users`). That user needs write access to the
-config folder (to save the CSV) and to the mapping folder. If an older version
-ran as root, fix the ownership once:
-
-```bash
-chown -R nobody:users /path/to/mapping /path/to/appdata/rom-mapper
-```
-
-## Run without Docker / without the UI
+Or with `docker run`:
 
 ```bash
-INPUT_CSV=/path/to/Rom_Mapping.csv SRC_BASE=/path/to/roms DEST_PATH=/path/to/mapping ./rom-mapper.sh
+docker build -t rom-mapper .
+docker run -d --name rom-mapper --restart unless-stopped --user 99:100 -p 8085:8085 \
+  -e TZ=America/New_York -e SRC_BASE=/path/to/roms -e DEST_PATH=/path/to/mapping \
+  -v /path/to/appdata/rom-mapper-config:/config -v /path/to/shares:/path/to/shares rom-mapper
 ```
 
-Inside the running container: `docker exec rom-mapper rom-mapper.sh`. Requires bash 4+.
+Open `http://SERVER:8085/`. There is no login - keep the port on your LAN.
 
-The UI on its own: `pip install -r requirements.txt && python app/server.py`, with the same
-environment variables.
+**Update:** `git pull`, then `docker compose up -d --build`. Settings and mapping are kept.
+
+**Why the same path?** Links are absolute. A folder mounted at `/roms` inside the container would
+produce links to `/roms/...`, which don't exist on the host.
+
+**Permissions:** the container user needs write access to the config folder, the mapping folder
+and (for RomM) the folder that holds the download folders.
+
+### Without Docker
+
+```bash
+pip install -r requirements.txt
+CONFIG_DIR=/path/to/config SRC_BASE=/path/to/roms DEST_PATH=/path/to/mapping python app/server.py
+```
+
+One-off resync without the web page: `python app/server.py --resync` (in Docker:
+`docker exec rom-mapper python /app/server.py --resync`).
+
+---
+
+## How it works
+
+### Rows and keys
+
+Every row is a folder written as `<source name>/<path inside it>`, e.g. `roms/snes` or
+`downloads/Nintendo/Super Famicom`. The source name is the source folder's own name (made unique
+with `-2`, `-3` if two have the same name) and stays the same when you reorder the list, so saved
+rows keep pointing at the right place. A row without a known source name in front (from older
+versions) belongs to the **first** source folder.
+
+### Scanning
+
+**Scan now** (and the scheduled scan) reads every source folder down to its depth. Folders starting
+with `.`, folders named `media`, and links are skipped. Folders that aren't in the mapping yet are
+*New*; with *Auto-add new folders* they're added to the mapping (unmapped). Mapped folders that no
+longer exist are *Missing* - their links wait until they come back. The page re-reads the folders
+when it refreshes (every 30 s, reusing a listing up to 10 s old).
+
+### Links (Resync)
+
+For every row and frontend with a name:
+
+```
+<mapping folder>/<frontend>/<name>  ->  <source folder>/<path>
+```
+
+`<name>` may contain `/` (e.g. `SDCARD/snes`). With *link media/ folders* on for a frontend, and a
+`media` folder inside the source folder:
+
+```
+<mapping folder>/<frontend>/<media location>/<name without its first part>/media  ->  <source folder>/<path>/media
+```
+
+A resync compares what should exist with what does: it creates missing links, corrects links that
+point elsewhere, removes links no row wants any more (and folders left empty), and leaves
+everything else alone. Only links are ever removed - a real file or folder in the mapping folder is
+reported and kept. When two rows give one frontend the same name, the first row (grid order) gets
+the link and the output says which was skipped. The mapping folder may not be `/`, a top-level
+share folder, inside a source folder, or contain one.
+
+---
+
+## RomM
+
+RomM wants one folder per platform, named by its *slug* (`snes`, `psx`, ...), all directly inside
+its roms folder. The **RomM** button maps your download folders to that without moving anything.
+
+- **Download folders**: a list in priority order (add, remove, move up/down). Each is read from
+  disk completely; rows start with the folder's name. Folders get a platform from built-in rules
+  for lolroms' folder tree (e.g. `Nintendo/Super Famicom` -> `snes`), or automatically when a folder
+  right inside a download folder is named exactly like a RomM platform (`snes`). Subfolders join
+  their parent's platform (variants, translations), except raw dumps and similar (skipped) and
+  `BIOS` folders (firmware).
+- **Your choices**: every folder has a dropdown with every RomM platform and **exclude**. Excluding a
+  folder leaves it **and everything inside it** out of RomM, unless you choose something else for a
+  subfolder. Choices are saved immediately.
+- **Overlaps**: when two download folders give the same platform, the one higher in the list is
+  used; the other's rows say *not linked* and a warning names both. *Overlaps only* in the filter
+  shows just those rows.
+- **Platform links**: relative links named after the platforms, kept in the folder that holds the
+  download folders (the *links folder*): `<links folder>/<slug> -> <download folder>/<path>`. Map the
+  links folder as RomM's roms folder (the **RomM compose** tab shows the line).
+  **Create / update links now** makes them and turns on *Update the links with every scan*. Only
+  links pointing into a download folder are ever changed or removed; real folders and other links
+  are left alone. All download folders must be inside the links folder.
+- **config.yml**: merge the generated section into RomM's `config.yml`: the download folders aren't
+  platforms (`exclude.platforms`), which subfolders belong to a platform (`{category}` levels by
+  default, or exact names), which to ignore, and `system.versions` for arcade boards RomM has no
+  platform for. Firmware isn't linked (RomM's bios folder is separate) - the dialog lists the
+  folders to copy. Restart RomM and scan its library.
+- **RomM platforms list**: every platform RomM knows (slug, name, maker), searchable.
+
+RomM facts this relies on are listed in `app/romm.py`'s docstring - re-check them when RomM changes.
+
+---
+
+## Settings and files
+
+All in the config folder (`/config` in Docker):
+
+| File | What |
+|---|---|
+| `rom-mapper-mapping.json` | The mapping: frontends (name, media toggle, media location) and rows (folder, one name per frontend) |
+| `rom-mapper-mapping.json.bak` | The previous version, written on every save |
+| `rom-mapper-state.json` | Source folders, schedule settings, last scan and last resync |
+| `romm-mapper.json` | RomM: download folders (`sources`), links folder, options, your choices (`map`, by `<download folder>/<path>`) |
+
+Files are written to a temporary file first and then swapped in, so a crash never leaves half a
+file. Environment variables: `CONFIG_DIR` (else the folder of `INPUT_CSV`), `INPUT_CSV` (an older
+CSV to import once), `SRC_BASE` (first source folder(s), `;`-separated), `DEST_PATH` (mapping
+folder), `ROMM_SOURCE`, `PORT` (8085), `MAPPING_FILE`, `STATE_FILE`.
+
+---
+
+## Import and export
+
+- **Export** downloads `rom-mapping-<date>.csv` with what the grid shows, unsaved edits included:
+  a header (`Folder`, then one column per frontend), the `Media Toggle` and `Media Location` rows,
+  and one row per folder - **every folder found in the source folders**, mapped or not, so the file
+  is ready to fill in. UTF-8 with a BOM and Windows line endings (opens cleanly in Excel).
+- **Import** reads such a file (also the older `Rom_Mapping.csv`; quotes, BOM and either line ending
+  are fine). Folders get their source name in front like in the grid. Choose **Merge** (folders in
+  the file get its names; other folders and frontends stay; missing frontends are added) or
+  **Replace** (the grid becomes the file). Problems (commas, `..`, ...) are listed. Nothing is saved
+  until you click **Save**.
+
+---
+
+## Upgrading from older versions
+
+Older files keep working; the tests in `tests/test_upgrades.py` check every case:
+
+- **`Rom_Mapping.csv`** (before 1.0.0): imported once at the first start into
+  `rom-mapper-mapping.json`; the CSV is left untouched and no longer read. Its rows (plain folder
+  names) belong to the first source folder, so every link stays where it was.
+- **Rows without a source name** keep pointing at the first source folder, even after the list is
+  reordered (they get the name written in front when the order changes).
+- **`romm-mapper.json` with one folder** (`source`) or from Rom Sync (no folder list, choices
+  without a folder name): converted to the folder list; choices get the first folder's name in
+  front; a relative links folder is dropped.
+- **`rom-mapper.sh`** (the bash script before 1.0.0) is replaced by the built-in resync, which makes
+  the same links.
+
+---
+
+## HTTP API
+
+JSON throughout; the page uses nothing else.
+
+| Method & path | Purpose |
+|---|---|
+| `GET /api/state` | Mapping (frontends, rows with status), `version` (for saving), `app_version`, source folders, paths, settings, last scan/resync, `sync_running` |
+| `PUT /api/mapping` `{version, frontends, rows, resync?, force?}` | Save (409 if the mapping changed since `version`; `force` overrides); 400 with details on invalid names |
+| `PUT /api/sources` `{sources: [{path, depth}]}` | Set the source folders (labels are kept per path) |
+| `POST /api/scan` · `POST /api/sync` · `GET /api/sync` | Scan now · start a resync (409 when running) · resync status |
+| `PUT /api/settings` | Schedule settings |
+| `POST /api/import` (CSV text) | Parse a mapping CSV -> `{frontends, rows, problems}` (not saved) |
+| `GET /api/activity` | Recent events |
+| `GET /api/romm` · `PUT /api/romm/options` · `PUT /api/romm/map {path, action}` · `POST /api/romm/links` | RomM dialog data, options/download folders, a folder's choice, create/update the platform links |
+
+---
+
+## Code map
+
+```
+app/server.py     Flask app: settings, mapping storage + import, source folders, scan, resync,
+                  scheduler, RomM endpoints; `python server.py --resync` for a one-off resync
+app/links.py      the link engine: desired links from the mapping, apply only the differences
+app/romm.py       RomM mapping (RULES for lolroms' tree, Mapping with several roots, templates,
+                  config.yml, apply_links); romm_slugs.py = RomM's platform list (vendored)
+app/version.py    __version__ (shown in the page, used for releases)
+app/static/index.html   the whole page (HTML, CSS, JS; no build step)
+tests/            pytest: test_mapping, test_romm, test_upgrades (temporary folders only)
+.github/workflows tests.yml (every push), release.yml (a release per new version)
+```
+
+---
+
+## Development, tests and releases
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+python -m pytest              # all tests run on temporary folders
+python -m pyflakes app tests
+```
+
+- Every change to the app is a new version: bump `app/version.py` (last number for fixes and small
+  features, middle number for bigger changes) and add a `## [x.y.z] - date` section to
+  `CHANGELOG.md` (plain words, grouped New / Improved / Fixed / Changed). On push to `main`, the
+  **Release** workflow runs the tests and publishes release `vx.y.z` with that section as its text;
+  correcting a section later updates the release text. The **Tests** workflow runs on every push.
+- Every behaviour change gets a test; anything that reads older files gets a case in
+  `tests/test_upgrades.py`.
+- Documentation (this README, the user guide, the changelog) is updated in the same commit.

@@ -1,0 +1,40 @@
+# ROM Mapper (rom-mapper)
+
+Web app that builds per-frontend folders of links into ROM folders, and maps download folders to
+RomM platforms. Flask + waitress, one page (`app/static/index.html`, no build step), Python 3.10+,
+Docker (Unraid). See README.md for the full reference.
+
+## Commands
+- Install (dev): `pip install -r requirements.txt -r requirements-dev.txt`
+- Tests: `python -m pytest` (temporary folders only); lint: `python -m pyflakes app tests`
+- Run: `CONFIG_DIR=... SRC_BASE=... DEST_PATH=... python app/server.py`; one-off: `--resync`
+- Docker: `docker compose up -d --build` (reads `.env`)
+
+## Rules
+- The mapping lives in `<config>/rom-mapper-mapping.json` (+ `.bak`); state in
+  `rom-mapper-state.json`; RomM in `romm-mapper.json`. Always write through `atomic_write`, under
+  `csv_lock` (mapping/state) or `romm_lock` (RomM).
+- Row keys are `<source label>/<path>`; labels are stored per source path and never change when the
+  list is reordered. A key without a known label belongs to the first source (older data) - keep
+  that working (`split_key`, `full_key`).
+- `links.py` only ever removes **symlinks** inside the mapping folder and folders left empty; never
+  delete real files. `check_dest` must refuse dangerous mapping folders.
+- RomM (`romm.py`): rows are paths relative to the links folder (`<root>/<path>`); RULES are keyed by
+  the path inside a root (`inner()`); first root wins overlaps; a user "exclude" covers the subtree
+  unless a subfolder has its own choice; `apply_links` only changes links pointing into a root.
+  RomM facts it relies on are in the module docstring.
+- Older files must keep working: any change to stored formats gets a conversion and a case in
+  `tests/test_upgrades.py` (old `Rom_Mapping.csv`, rows without labels, one-folder and Rom Sync
+  `romm-mapper.json`).
+- The container runs as 99:100 and sees one host folder at the same path; links are absolute
+  (frontends) or relative (RomM).
+
+## Releases
+- Every app change = new version: bump `app/version.py`, add `## [x.y.z] - date` to CHANGELOG.md
+  (New / Improved / Fixed / Changed, plain words), push to `main`; `release.yml` runs the tests and
+  publishes `vx.y.z` with that section. Last number by default; ask the owner before a minor/major
+  bump. Docs (README, docs/user-guide.md, CHANGELOG) change in the same commit.
+
+## Privacy
+- Docs, examples, tests and commit messages use placeholder paths (`/path/to/roms`,
+  `/path/to/mapping`, `/path/to/appdata`), never the owner's real folders, shares, IPs or names.
