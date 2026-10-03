@@ -22,6 +22,8 @@
          font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   header { padding: 16px 20px 8px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
   h1 { font-size: 20px; margin: 0; flex: 1 1 auto; }
+  h1 .ver { font-size: 12px; font-weight: 400; color: var(--muted); text-decoration: none; margin-left: 6px; }
+  h1 .ver:hover { text-decoration: underline; }
   .paths { color: var(--muted); font-size: 12px; padding: 0 20px; }
   .paths code { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
   button { font: inherit; border: 1px solid var(--border); background: var(--panel); color: var(--text);
@@ -167,12 +169,12 @@
 </head>
 <body>
 <header>
-  <h1>ROM Mapper</h1>
+  <h1>ROM Mapper <a id="appVersion" class="ver" href="https://github.com/sireteanu/rom-mapper/releases" target="_blank" rel="noopener"></a></h1>
   <div class="actions">
     <span id="dirty" class="dirty" hidden>● Unsaved changes</span>
-    <button id="btnRomm" title="Map a lolroms download folder to RomM platforms (links + config.yml)">RomM</button>
+    <button id="btnRomm" title="Map download folders to RomM platforms (links + config.yml)">RomM</button>
     <button id="btnScan" title="Re-read the ROM folder for new or removed folders">Scan now</button>
-    <button id="btnSync" class="danger" title="Delete every link in the mapping folder and recreate them from the saved CSV">Resync all</button>
+    <button id="btnSync" class="danger" title="Make the links in the mapping folder match the saved mapping (only what differs is changed)">Resync all</button>
     <button id="btnSave" disabled>Save</button>
     <button id="btnSaveSync" class="primary" disabled>Save &amp; resync</button>
   </div>
@@ -212,11 +214,15 @@
   <span class="spacer"></span>
   <span id="dupNote" class="warn" hidden></span>
   <button id="btnSources" title="Which folders the grid reads, and how deep">Source folders</button>
+  <button id="btnImport" title="Load a mapping from a CSV file (you review it, then Save)">Import</button>
+  <button id="btnExport" title="Download the mapping as a CSV - every folder in the source folders is listed, mapped or not">Export</button>
+  <input type="file" id="importFile" accept=".csv,text/csv" hidden>
   <button id="btnRemoveMissing" hidden class="danger">Remove missing rows</button>
   <button id="btnAddFolder">+ Folder</button>
   <button id="btnAddFe">+ Frontend</button>
 </div>
-<div class="hint" style="padding: 0 20px 6px">Tip: double-click an empty cell to fill it with the folder name. Blank cell = no link for that frontend.</div>
+<div class="hint" style="padding: 0 20px 6px">Tip: double-click an empty cell to fill it with the folder name. Blank cell = no link for that frontend.
+  Export downloads a CSV with every folder (to edit in a spreadsheet); Import loads one back.</div>
 
 <div class="table-wrap"><table id="grid"></table></div>
 
@@ -225,14 +231,26 @@
   <pre id="outPre"></pre>
   <form method="dialog" style="text-align:right"><button>Close</button></form>
 </dialog>
+<dialog id="impDlg" class="srcdlg">
+  <h3 style="margin-top:0">Import mapping</h3>
+  <p id="impSummary"></p>
+  <ul id="impProblems" class="bad" hidden></ul>
+  <label class="check" style="display:flex;gap:6px;margin:6px 0"><input type="radio" name="impMode" value="merge" checked>
+    <span><b>Merge</b> - folders in the file get its names (other folders and frontends stay as they are)</span></label>
+  <label class="check" style="display:flex;gap:6px;margin:6px 0"><input type="radio" name="impMode" value="replace">
+    <span><b>Replace</b> - the grid becomes exactly what's in the file</span></label>
+  <p class="hint">Nothing is saved yet: the grid shows the result, and you click Save (or reload to undo).</p>
+  <div class="foot"><button id="impCancel" type="button">Cancel</button><button id="impApply" class="primary" type="button">Load into the grid</button></div>
+</dialog>
+
 <dialog id="srcDlg" class="srcdlg">
   <h3 style="margin-top:0">Source folders</h3>
   <p class="hint">The folders the grid reads. Rows show the folder's name in front (<code>roms/snes</code>,
-    <code>lolroms/Nintendo/Super Famicom</code>). <b>Depth</b>: 1 = the folders directly inside it, 2 = also the folders
+    <code>downloads/Nintendo/Super Famicom</code>). <b>Depth</b>: 1 = the folders directly inside it, 2 = also the folders
     inside those, and so on. Folders named <code>media</code> are skipped (use "link media/ folders").
     Everything must be inside the folder mounted into the container.</p>
   <div id="srcList"></div>
-  <div class="add"><input type="text" id="srcNew" placeholder="/path/to/downloads/lolroms"><button id="srcAdd" type="button">Add folder</button></div>
+  <div class="add"><input type="text" id="srcNew" placeholder="/path/to/roms"><button id="srcAdd" type="button">Add folder</button></div>
   <p id="srcErr" class="bad" hidden></p>
   <div class="foot"><button id="srcCancel" type="button">Cancel</button><button id="srcSave" class="primary" type="button">Save &amp; scan</button></div>
 </dialog>
@@ -245,8 +263,8 @@
     <code>config.yml</code>, restart RomM and scan its library.</p>
   <div class="field"><span>Download folders</span>
     <div id="rSources" class="sources"></div>
-    <div class="srcadd"><input type="text" id="rSourceNew" placeholder="/path/to/downloads/rommer"><button id="rSourceAdd" type="button">Add folder</button></div>
-    <small>Each folder is mapped into RomM (for example Rom Sync's lolroms folder and a RomM-style folder).
+    <div class="srcadd"><input type="text" id="rSourceNew" placeholder="/path/to/downloads"><button id="rSourceAdd" type="button">Add folder</button></div>
+    <small>Each folder is mapped into RomM (for example a lolroms download folder and a RomM-style collection).
       When two give the same platform, the one <b>higher in the list</b> is used - exclude the other, or change the order.
       Folders must be mounted into this container at the same path.</small></div>
   <p id="rError" class="bad" hidden></p>
@@ -349,7 +367,8 @@ async function load({ keepEdits = false } = {}) {
   const data = await api("GET", "/api/state");
   if (keepEdits && dirty && model) {
     Object.assign(model, { settings: data.settings, last_scan: data.last_scan, last_sync: data.last_sync,
-                           sync_running: data.sync_running, disk_error: data.disk_error });
+                           sync_running: data.sync_running, disk_error: data.disk_error, sources: data.sources,
+                           paths: data.paths, app_version: data.app_version });
   } else {
     model = data;
     setDirty(false);
@@ -361,7 +380,11 @@ async function load({ keepEdits = false } = {}) {
 
 function renderMeta() {
   const p = model.paths;
-  $("paths").innerHTML = `CSV <code>${esc(p.csv)}</code> · ROMs ` +
+  if (model.app_version) {
+    $("appVersion").textContent = "v" + model.app_version;
+    $("appVersion").href = `https://github.com/sireteanu/rom-mapper/releases/tag/v${model.app_version}`;
+  }
+  $("paths").innerHTML = `Saved in <code>${esc(p.store)}</code> · ROMs ` +
     (model.sources || []).map(x => `<code title="${esc(x.path)}">${esc(x.label)}: ${esc(x.path)} (${x.depth} deep)</code>`).join(" ") +
     ` · Links <code>${esc(p.dest)}</code>`;
   $("banner").innerHTML = model.disk_error ? `<div class="banner">${esc(model.disk_error)}</div>` : "";
@@ -421,7 +444,7 @@ function renderGrid() {
     fes.forEach((f, fi) => {
       body += `<td><input type="text" data-ri="${ri}" data-fi="${fi}" value="${esc(r.values[fi])}" placeholder="—"></td>`;
     });
-    body += `<td><button class="icon" data-delrow="${ri}" title="Remove this row from the CSV">✕</button></td></tr>`;
+    body += `<td><button class="icon" data-delrow="${ri}" title="Remove this row from the mapping">✕</button></td></tr>`;
   });
   body += "</tbody>";
   $("grid").innerHTML = model.rows.length || fes.length ? head + body
@@ -499,7 +522,7 @@ $("grid").addEventListener("click", (e) => {
   const t = e.target.closest("button"); if (!t) return;
   if (t.dataset.delrow !== undefined) {
     const r = model.rows[+t.dataset.delrow];
-    if (r.values.some(v => v) && !confirm(`Remove "${r.folder}" and its mappings from the CSV?`)) return;
+    if (r.values.some(v => v) && !confirm(`Remove "${r.folder}" and its mappings?`)) return;
     model.rows.splice(+t.dataset.delrow, 1); setDirty(true); renderGrid();
   } else if (t.dataset.delfe !== undefined) {
     const i = +t.dataset.delfe;
@@ -548,7 +571,7 @@ async function save(resync) {
     try { res = await api("PUT", "/api/mapping", payload); }
     catch (e) {
       if (e.status !== 409) throw e;
-      if (!confirm("The CSV changed on the server since you loaded it (for example a scheduled scan added folders).\n\nOverwrite it with your version? New folders will show up again on the next scan.")) return;
+      if (!confirm("The mapping changed on the server since you loaded it (for example a scheduled scan added folders).\n\nOverwrite it with your version? New folders will show up again on the next scan.")) return;
       res = await api("PUT", "/api/mapping", { ...payload, force: true });
     }
     toast(resync ? "Saved. Resync started." : "Saved.");
@@ -576,8 +599,8 @@ $("btnScan").onclick = async () => {
 };
 
 $("btnSync").onclick = async () => {
-  const msg = dirty ? "\n\nNote: you have UNSAVED changes. Resync uses the saved CSV. Use “Save & resync” to include them." : "";
-  if (!confirm(`Delete every link under ${model.paths.dest} and rebuild them from the saved CSV?${msg}`)) return;
+  const msg = dirty ? "\n\nNote: you have UNSAVED changes. Resync uses the saved mapping. Use “Save & resync” to include them." : "";
+  if (!confirm(`Bring every link under ${model.paths.dest} in line with the saved mapping? Missing links are made, wrong ones corrected and unused ones removed.${msg}`)) return;
   try { await api("POST", "/api/sync"); toast("Resync started."); watchSync(); }
   catch (e) { alert(e.message); }
 };
@@ -607,6 +630,74 @@ window.addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault()
 
 // Refresh periodically to pick up scheduled scans/resyncs (keeps your edits if you have any).
 setInterval(() => { load({ keepEdits: true }).catch(() => {}); loadActivity(); }, 30000);
+
+// ------------------------------------------------------------- import / export
+function csvCell(v) {
+  v = String(v ?? "");
+  return /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+}
+$("btnExport").onclick = () => {
+  // what the grid shows (unsaved edits included); rows include every folder found in the
+  // source folders, so the file lists them all, ready to fill in
+  const fes = model.frontends;
+  const lines = [["Folder", ...fes.map(f => f.name)], ["Media Toggle", ...fes.map(f => f.media_toggle)],
+                 ["Media Location", ...fes.map(f => f.media_location)],
+                 ...model.rows.map(r => [r.folder, ...fes.map((_, i) => r.values[i] || "")])];
+  const text = "\ufeff" + lines.map(l => l.map(csvCell).join(",")).join("\r\n") + "\r\n";
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
+  a.download = `rom-mapping-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  toast(`Exported ${model.rows.length} folders × ${fes.length} frontends${dirty ? " (including unsaved changes)" : ""}.`);
+};
+let imported = null;
+$("btnImport").onclick = () => { $("importFile").value = ""; $("importFile").click(); };
+$("importFile").onchange = async () => {
+  const file = $("importFile").files[0]; if (!file) return;
+  try {
+    const res = await fetch("/api/import", { method: "POST", headers: { "Content-Type": "text/csv" }, body: await file.text() });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || res.statusText);
+    imported = d;
+    const mapped = d.rows.filter(r => r.values.some(v => v)).length;
+    const n = (k, w) => `${k} ${w}${k === 1 ? "" : "s"}`;
+    $("impSummary").textContent = `${file.name}: ${n(d.rows.length, "folder")} (${mapped} with names) × ${n(d.frontends.length, "frontend")} (${d.frontends.map(f => f.name).join(", ") || "none"}).`;
+    $("impProblems").innerHTML = (d.problems || []).slice(0, 8).map(p => `<li>${esc(p)}</li>`).join("");
+    $("impProblems").hidden = !(d.problems || []).length;
+    $("impDlg").showModal();
+  } catch (e) { alert("Could not import: " + e.message); }
+};
+$("impCancel").onclick = () => $("impDlg").close();
+$("impApply").onclick = () => {
+  const d = imported; if (!d) return;
+  const mode = document.querySelector('input[name="impMode"]:checked').value;
+  if (mode === "replace") {
+    const onDisk = new Set(model.rows.filter(r => r.status !== "missing").map(r => r.folder));
+    model.frontends = d.frontends.map(f => ({ ...f }));
+    model.rows = d.rows.map(r => ({ folder: r.folder, values: [...r.values], status: "unmapped" }));
+    model.rows.forEach(r => { if (!onDisk.has(r.folder)) r.status = "missing"; else r.status = rowStatus(r); });
+  } else {
+    // merge: add frontends the grid doesn't have, then copy the file's names into matching folders
+    const idx = {};
+    for (const f of d.frontends) {
+      let i = model.frontends.findIndex(x => x.name === f.name);
+      if (i < 0) { model.frontends.push({ ...f }); model.rows.forEach(r => r.values.push("")); i = model.frontends.length - 1; }
+      else { model.frontends[i].media_toggle = f.media_toggle; model.frontends[i].media_location = f.media_location; }
+      idx[f.name] = i;
+    }
+    const byFolder = new Map(model.rows.map(r => [r.folder, r]));
+    for (const ir of d.rows) {
+      let r = byFolder.get(ir.folder);
+      if (!r) { r = { folder: ir.folder, values: model.frontends.map(() => ""), status: "missing" }; model.rows.push(r); byFolder.set(r.folder, r); }
+      d.frontends.forEach((f, j) => { if (ir.values[j] !== undefined && ir.values[j] !== "") r.values[idx[f.name]] = ir.values[j]; });
+      if (r.status !== "missing" && r.status !== "new") r.status = rowStatus(r);
+    }
+  }
+  $("impDlg").close();
+  setDirty(true); renderGrid();
+  toast("Imported into the grid - check it, then Save.", 5000);
+};
 
 // ------------------------------------------------------------- source folders
 let srcEdit = [];
