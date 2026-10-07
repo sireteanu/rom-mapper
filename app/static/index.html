@@ -21,7 +21,7 @@
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   header { padding: 16px 20px 8px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
-  h1 { font-size: 20px; margin: 0; flex: 1 1 auto; }
+  h1 { font-size: 20px; margin: 0; }
   h1 .ver { font-size: 12px; font-weight: 400; color: var(--muted); text-decoration: none; margin-left: 6px; }
   h1 .ver:hover { text-decoration: underline; }
   .paths { color: var(--muted); font-size: 12px; padding: 0 20px; }
@@ -105,7 +105,18 @@
   #toast.show { opacity: 1; }
   .hint { color: var(--muted); font-size: 12px; }
   /* ---------- RomM ---------- */
-  dialog.romm { max-width: min(1240px, 97vw); }
+  .maintabs { display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 3px; }
+  .maintabs button { border: 0; background: transparent; color: var(--muted); font-weight: 600; padding: 6px 16px; }
+  .maintabs button.on { background: var(--accent); color: var(--accent-text); }
+  .maintabs button:hover:not(.on) { background: var(--hover); color: var(--text); }
+  [hidden] { display: none !important; }
+  #linksActions, #rommActions { margin-left: auto; }
+  .romm .field { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+  .romm .sources, .romm .src, .romm .srcadd input { min-width: 0; }
+  .romm .srcadd { min-width: 0; }
+  #paneRomm { padding: 4px 20px 20px; }
+  #paneRomm .intro { margin-top: 0; }
+  @media (max-width: 640px) { #paneRomm { padding: 4px 12px 12px; } }
   .romm .head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
   .romm .head h2 { margin: 0; font-size: 18px; }
   .romm .intro { color: var(--muted); font-size: 13px; margin: 6px 0 10px; }
@@ -157,7 +168,7 @@
   .romm .srcadd input { flex: 1; }
   .romm tr.root td { font-weight: 600; background: var(--bg); }
   .romm tr.conflict td.p { color: var(--warn); }
-  @media (max-width: 900px) { .romm .grid2, .romm .two { grid-template-columns: 1fr; } }
+  @media (max-width: 900px) { .romm .grid2, .romm .two { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 900px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 520px) { .cards { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 640px) {
@@ -170,15 +181,23 @@
 <body>
 <header>
   <h1>ROM Mapper <a id="appVersion" class="ver" href="https://github.com/sireteanu/rom-mapper/releases" target="_blank" rel="noopener"></a></h1>
-  <div class="actions">
+  <nav class="maintabs" role="tablist" aria-label="Sections">
+    <button role="tab" data-pane="links" aria-selected="true" class="on" title="Folders of links for each frontend">Frontend links</button>
+    <button role="tab" data-pane="romm" aria-selected="false" title="Map download folders to RomM platforms (links + config.yml)">RomM</button>
+  </nav>
+  <div class="actions" id="linksActions">
     <span id="dirty" class="dirty" hidden>● Unsaved changes</span>
-    <button id="btnRomm" title="Map download folders to RomM platforms (links + config.yml)">RomM</button>
-    <button id="btnScan" title="Re-read the ROM folder for new or removed folders">Scan now</button>
+    <button id="btnScan" title="Re-read the source folders for new or removed folders">Scan now</button>
     <button id="btnSync" class="danger" title="Make the links in the mapping folder match the saved mapping (only what differs is changed)">Resync all</button>
     <button id="btnSave" disabled>Save</button>
     <button id="btnSaveSync" class="primary" disabled>Save &amp; resync</button>
   </div>
+  <div class="actions" id="rommActions" hidden>
+    <button id="rRefresh" title="Read the download folders again">Refresh</button>
+    <button id="rApply" class="primary" type="button" title="Create, correct or remove the platform links">Create / update links now</button>
+  </div>
 </header>
+<main id="paneLinks">
 <div class="paths" id="paths"></div>
 <div id="banner"></div>
 
@@ -225,6 +244,67 @@
   Export downloads a CSV with every folder (to edit in a spreadsheet); Import loads one back.</div>
 
 <div class="table-wrap"><table id="grid"></table></div>
+</main>
+
+<main id="paneRomm" class="romm" hidden>
+  <p class="intro">RomM sees each folder under its platform name through a <b>platform link</b>
+    (snes &rarr; lolroms/Nintendo/Super Famicom) next to the download folders, so RomM needs a single folder
+    mapping. Nothing is moved or copied, so syncing keeps working. Merge the config into RomM's
+    <code>config.yml</code>, restart RomM and scan its library.</p>
+  <div class="field"><span>Download folders</span>
+    <div id="rSources" class="sources"></div>
+    <div class="srcadd"><input type="text" id="rSourceNew" placeholder="/path/to/downloads"><button id="rSourceAdd" type="button">Add folder</button></div>
+    <small>Each folder is mapped into RomM (for example a lolroms download folder and a RomM-style collection).
+      When two give the same platform, the one <b>higher in the list</b> is used - exclude the other, or change the order.
+      Folders must be mounted into this container at the same path.</small></div>
+  <p id="rError" class="bad" hidden></p>
+  <div class="box">
+    <div class="two">
+      <label class="field"><span>Links folder</span><input type="text" id="rLinkDir">
+        <small id="rLinkHint">Must contain the download folder. Map this same folder as RomM's roms folder.</small></label>
+      <div class="field"><span>&nbsp;</span><small>Use <b>Create / update links now</b> at the top to make or refresh them.</small></div>
+    </div>
+    <label class="check"><input type="checkbox" id="rKeep"> Update the links with every scan (turned on by the first "Create / update links now")</label>
+    <p id="rApplied" class="hint" hidden></p>
+  </div>
+  <div class="two">
+    <label class="field"><span>RomM folder</span><input type="text" id="rRommFolder" placeholder="/romm/library/roms/lolroms">
+      <small>Where the first download folder appears inside RomM's container (RomM's library path is worked out from it).</small></label>
+    <label class="field"><span>Subfolders in config.yml</span>
+      <select id="rLayout">
+        <option value="category">{category} levels - also picks up subfolders added later</option>
+        <option value="folders">Exact folder names - only the subfolders listed here</option>
+      </select></label>
+  </div>
+  <label class="check"><input type="checkbox" id="rVar"> Include subfolders such as T-En, hacks and add-ons in their platform</label>
+  <ul id="rWarn" class="warnings"></ul>
+  <div class="grid2">
+    <section>
+      <div class="bar"><h3 id="rCount">Folders</h3>
+        <select id="rFilter" aria-label="Show"></select>
+        </div>
+      <div class="wrap"><table><thead><tr><th>Folder</th><th>Files</th><th>RomM platform</th><th>Result</th></tr></thead>
+        <tbody id="rBody"></tbody></table></div>
+      <p class="hint">Pick the RomM platform for a folder, or <b>exclude</b> to leave it out of RomM. A subfolder with the
+        same platform as its parent (like T-En under snes) is part of that platform. Every choice is saved right away.</p>
+    </section>
+    <section>
+      <div class="bar">
+        <div class="tabs"><button class="tab on" data-out="compose">RomM compose</button><button class="tab" data-out="config">config.yml</button></div>
+        <button id="rCopy">Copy</button>
+        <button class="ref-btn" data-out="list" title="Every platform RomM knows">RomM platforms list</button>
+      </div>
+      <p id="rHelp" class="hint"></p>
+      <pre id="rOut"></pre>
+      <div id="rList" class="ref" hidden>
+        <div class="hint" style="margin-bottom:6px"><b>Reference</b> - every platform RomM knows. Click a name to copy it.</div>
+        <input type="search" id="rListFind" placeholder="Find a platform, e.g. famicom or Sega">
+        <div class="wrap"><table><thead><tr><th>RomM platform</th><th>Name</th><th>Maker</th><th>Your folders</th></tr></thead>
+          <tbody id="rListBody"></tbody></table></div>
+      </div>
+    </section>
+  </div>
+</main>
 
 <dialog id="outDialog">
   <h3 style="margin-top:0">Last resync output</h3>
@@ -255,66 +335,7 @@
   <div class="foot"><button id="srcCancel" type="button">Cancel</button><button id="srcSave" class="primary" type="button">Save &amp; scan</button></div>
 </dialog>
 
-<dialog id="rommDlg" class="romm">
-  <div class="head"><h2>RomM</h2><form method="dialog"><button aria-label="Close">✕</button></form></div>
-  <p class="intro">RomM sees each folder under its platform name through a <b>platform link</b>
-    (snes &rarr; lolroms/Nintendo/Super Famicom) next to the download folders, so RomM needs a single folder
-    mapping. Nothing is moved or copied, so syncing keeps working. Merge the config into RomM's
-    <code>config.yml</code>, restart RomM and scan its library.</p>
-  <div class="field"><span>Download folders</span>
-    <div id="rSources" class="sources"></div>
-    <div class="srcadd"><input type="text" id="rSourceNew" placeholder="/path/to/downloads"><button id="rSourceAdd" type="button">Add folder</button></div>
-    <small>Each folder is mapped into RomM (for example a lolroms download folder and a RomM-style collection).
-      When two give the same platform, the one <b>higher in the list</b> is used - exclude the other, or change the order.
-      Folders must be mounted into this container at the same path.</small></div>
-  <p id="rError" class="bad" hidden></p>
-  <div class="box">
-    <div class="two">
-      <label class="field"><span>Links folder</span><input type="text" id="rLinkDir">
-        <small id="rLinkHint">Must contain the download folder. Map this same folder as RomM's roms folder.</small></label>
-      <div class="field"><span>&nbsp;</span><button id="rApply" type="button">Create / update links now</button></div>
-    </div>
-    <label class="check"><input type="checkbox" id="rKeep"> Update the links with every scan (turned on by the first "Create / update links now")</label>
-    <p id="rApplied" class="hint" hidden></p>
-  </div>
-  <div class="two">
-    <label class="field"><span>RomM folder</span><input type="text" id="rRommFolder" placeholder="/romm/library/roms/lolroms">
-      <small>Where the first download folder appears inside RomM's container (RomM's library path is worked out from it).</small></label>
-    <label class="field"><span>Subfolders in config.yml</span>
-      <select id="rLayout">
-        <option value="category">{category} levels - also picks up subfolders added later</option>
-        <option value="folders">Exact folder names - only the subfolders listed here</option>
-      </select></label>
-  </div>
-  <label class="check"><input type="checkbox" id="rVar"> Include subfolders such as T-En, hacks and add-ons in their platform</label>
-  <ul id="rWarn" class="warnings"></ul>
-  <div class="grid2">
-    <section>
-      <div class="bar"><h3 id="rCount">Folders</h3>
-        <select id="rFilter" aria-label="Show"></select>
-        <button id="rRefresh" title="Read the download folders again">Refresh</button></div>
-      <div class="wrap"><table><thead><tr><th>Folder</th><th>Files</th><th>RomM platform</th><th>Result</th></tr></thead>
-        <tbody id="rBody"></tbody></table></div>
-      <p class="hint">Pick the RomM platform for a folder, or <b>exclude</b> to leave it out of RomM. A subfolder with the
-        same platform as its parent (like T-En under snes) is part of that platform. Every choice is saved right away.</p>
-    </section>
-    <section>
-      <div class="bar">
-        <div class="tabs"><button class="tab on" data-out="compose">RomM compose</button><button class="tab" data-out="config">config.yml</button></div>
-        <button id="rCopy">Copy</button>
-        <button class="ref-btn" data-out="list" title="Every platform RomM knows">RomM platforms list</button>
-      </div>
-      <p id="rHelp" class="hint"></p>
-      <pre id="rOut"></pre>
-      <div id="rList" class="ref" hidden>
-        <div class="hint" style="margin-bottom:6px"><b>Reference</b> - every platform RomM knows. Click a name to copy it.</div>
-        <input type="search" id="rListFind" placeholder="Find a platform, e.g. famicom or Sega">
-        <div class="wrap"><table><thead><tr><th>RomM platform</th><th>Name</th><th>Maker</th><th>Your folders</th></tr></thead>
-          <tbody id="rListBody"></tbody></table></div>
-      </div>
-    </section>
-  </div>
-</dialog>
+
 <div id="toast"></div>
 
 <script>
@@ -861,8 +882,8 @@ $("srcSave").onclick = async () => {
     $("rLinkDir").placeholder = d.links_dir || "";
     $("rLinkHint").textContent = !d.sources.length ? "Add a download folder first."
       : `Links go in ${d.links_dir}, next to the download folders. Map ${d.links_dir} as RomM's roms folder.`;
-    document.querySelectorAll("#rommDlg .tab").forEach(t => t.classList.toggle("on", t.dataset.out === tab));
-    q("#rommDlg .ref-btn").classList.toggle("on", isList);
+    document.querySelectorAll("#paneRomm .tab").forEach(t => t.classList.toggle("on", t.dataset.out === tab));
+    q("#paneRomm .ref-btn").classList.toggle("on", isList);
     $("rApply").disabled = !!d.error;
   }
   function renderList() {
@@ -911,8 +932,8 @@ $("srcSave").onclick = async () => {
   $("rSourceAdd").onclick = addSource;
   $("rSourceNew").addEventListener("keydown", (e) => { if (e.key === "Enter") addSource(); });
   $("rFilter").addEventListener("change", () => { show = $("rFilter").value; render(); });
-  $("btnRomm").onclick = async () => {
-    $("rommDlg").showModal(); $("rOut").textContent = "Loading…";
+  window.loadRomm = async () => {
+    if (!R) $("rOut").textContent = "Loading…";
     try { loadR(await api("GET", "/api/romm")); } catch (e) { $("rOut").textContent = e.message; }
   };
   $("rRefresh").onclick = async () => { loadR(await api("GET", "/api/romm?fresh=1")); toast("Folders read again."); };
@@ -924,8 +945,8 @@ $("srcSave").onclick = async () => {
     } catch (e) { out.textContent = "Could not update the links: " + e.message; out.className = "bad"; }
     out.hidden = false; $("rApply").disabled = false; loadActivity();
   };
-  document.querySelectorAll("#rommDlg .tab").forEach(t => t.onclick = () => { tab = outTab = t.dataset.out; render(); });
-  q("#rommDlg .ref-btn").onclick = () => { tab = tab === "list" ? outTab : "list"; render(); };
+  document.querySelectorAll("#paneRomm .tab").forEach(t => t.onclick = () => { tab = outTab = t.dataset.out; render(); });
+  q("#paneRomm .ref-btn").onclick = () => { tab = tab === "list" ? outTab : "list"; render(); };
   $("rListFind").addEventListener("input", renderList);
   $("rCopy").onclick = async () => {
     try { await navigator.clipboard.writeText($("rOut").textContent); }
@@ -933,6 +954,24 @@ $("srcSave").onclick = async () => {
     $("rCopy").textContent = "Copied"; setTimeout(() => ($("rCopy").textContent = "Copy"), 1500);
   };
 })();
+
+// ------------------------------------------------------------- main tabs
+function showPane(pane) {
+  pane = pane === "romm" ? "romm" : "links";
+  document.querySelectorAll(".maintabs [data-pane]").forEach(b => {
+    b.classList.toggle("on", b.dataset.pane === pane); b.setAttribute("aria-selected", String(b.dataset.pane === pane));
+  });
+  $("paneLinks").hidden = pane !== "links"; $("linksActions").hidden = pane !== "links";
+  $("paneRomm").hidden = pane !== "romm"; $("rommActions").hidden = pane !== "romm";
+  if (pane === "romm") loadRomm();
+  if (location.hash !== "#" + pane) history.replaceState(null, "", "#" + pane);
+  try { localStorage.setItem("pane", pane); } catch (e) {}
+}
+document.querySelectorAll(".maintabs [data-pane]").forEach(b => b.onclick = () => showPane(b.dataset.pane));
+window.addEventListener("hashchange", () => showPane(location.hash.slice(1)));
+let startPane = location.hash.slice(1);
+if (!startPane) { try { startPane = localStorage.getItem("pane") || "links"; } catch (e) { startPane = "links"; } }
+showPane(startPane);
 
 load().catch(e => { $("banner").innerHTML = `<div class="banner">Failed to load: ${esc(e.message)}</div>`; });
 loadActivity();
