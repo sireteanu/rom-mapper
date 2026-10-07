@@ -191,3 +191,10 @@ def test_command_line_resync(env, capsys):
     finally:
         sys.argv = old
     assert env.link("rgs", "snes") and "1 links created" in capsys.readouterr().out
+
+
+def test_page_has_a_tab_for_frontend_links_and_one_for_romm(env):
+    server, c = env.start()
+    html = c.get("/").get_data(as_text=True)
+    assert 'data-pane="links"' in html and 'data-pane="romm"' in html
+    assert 'id="paneLinks"' in html and 'id="paneRomm"' in html
