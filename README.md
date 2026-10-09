@@ -6,7 +6,8 @@ copied or moved: each frontend gets its own folder of links, named the way that 
 pointing at the one copy of your files.
 
 It runs as a small web app in Docker (made for Unraid) and keeps the links up to date on a
-schedule.
+schedule. The page has two tabs of equal standing: **Frontend links** (the mapping grid) and
+**RomM**. The open tab is kept in the address (`#links`, `#romm`) and remembered by the browser.
 
 - **New here?** Follow the [user guide](docs/user-guide.md).
 - **What changed?** See the [changelog](CHANGELOG.md) and the [releases](../../releases). The running
@@ -152,7 +153,9 @@ share folder, inside a source folder, or contain one.
 ## RomM
 
 RomM wants one folder per platform, named by its *slug* (`snes`, `psx`, ...), all directly inside
-its roms folder. The **RomM** button maps your download folders to that without moving anything.
+its roms folder. The **RomM** tab maps your download folders to that without moving anything; its
+**Refresh** and **Create / update links now** buttons sit at the top, where the grid's buttons are on
+the other tab.
 
 - **Download folders**: a list in priority order (add, remove, move up/down). Each is read from
   disk completely; rows start with the folder's name. Folders get a platform from built-in rules

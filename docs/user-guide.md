@@ -23,7 +23,8 @@ container (for example `/path/to/shares:/path/to/shares`). After that you never 
 container to use another folder.
 
 Open `http://YOUR-SERVER:8085/`. The version you're running is next to the title; click it to see
-what changed.
+what changed. The page has two tabs at the top: **Frontend links** (steps 2-7) and **RomM** (step 8).
+Each has its own buttons on the right.
 
 ## 2. Choose your source folders
 
@@ -90,7 +91,7 @@ In **Schedule**:
 
 ## 8. RomM
 
-Click **RomM**.
+Open the **RomM** tab (or go to `http://YOUR-SERVER:8085/#romm`).
 
 1. **Download folders** - add the folders RomM should see, in order of preference. The table lists
    every folder with files and the RomM platform it becomes. Most are filled in already.
@@ -99,7 +100,7 @@ Click **RomM**.
 3. **Overlaps** - if two download folders give the same platform, the higher one in the list is
    used and the other is marked *not linked*. Choose **Overlaps only** in the filter to see them;
    exclude the one you don't want, or move a folder up or down.
-4. **Create / update links now** - makes one link per platform in the links folder (by default the
+4. **Create / update links now** (top right) - makes one link per platform in the links folder (by default the
    folder that holds your download folders) and keeps them updated with every scan from then on.
    In RomM's compose file, map the links folder as RomM's roms folder - the **RomM compose** tab shows
    the line.

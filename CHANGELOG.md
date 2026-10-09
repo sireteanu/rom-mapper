@@ -5,6 +5,16 @@ release. Newest first.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-08
+
+### Changed
+- **Two tabs: Frontend links and RomM.** RomM is no longer a pop-up window but a page of its own next to
+  the mapping grid, with its **Refresh** and **Create / update links now** buttons at the top. The
+  open tab is remembered, and `#romm` in the address opens it directly.
+
+### Fixed
+- The RomM page fits a phone screen.
+
 ## [1.0.0] - 2026-10-03
 
 The first numbered release. ROM Mapper started as a bash script driven by a CSV file; it is now a
