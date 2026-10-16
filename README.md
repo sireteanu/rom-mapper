@@ -57,6 +57,12 @@ containing everything it uses: your source folders, the mapping folder and RomM'
 folders. Pick a folder high enough to cover them all (on Unraid, the user-shares folder covers every
 share). Folders are then chosen in the web page - adding one never needs another mapping.
 
+**Unraid (Compose Manager):** Docker > Compose > Add New Stack `rom-mapper` > Edit Stack, paste
+[`unraid/docker-compose.yml`](unraid/docker-compose.yml), set the paths, then **Compose Up**. It
+builds the image straight from GitHub; every Compose Up updates to the latest version.
+
+**Any Docker host:**
+
 ```bash
 git clone https://github.com/sireteanu/rom-mapper.git /path/to/appdata/rom-mapper
 cd /path/to/appdata/rom-mapper
@@ -88,7 +94,8 @@ docker run -d --name rom-mapper --restart unless-stopped --user 99:100 -p 8085:8
 
 Open `http://SERVER:8085/`. There is no login - keep the port on your LAN.
 
-**Update:** `git pull`, then `docker compose up -d --build`. Settings and mapping are kept.
+**Update:** Compose Manager: **Compose Up**. Otherwise `git pull`, then `docker compose up -d --build`.
+Settings and mapping are kept.
 
 **Why the same path?** Links are absolute. A folder mounted at `/roms` inside the container would
 produce links to `/roms/...`, which don't exist on the host.
@@ -264,6 +271,7 @@ app/version.py    __version__ (shown in the page, used for releases)
 app/static/index.html   the whole page (HTML, CSS, JS; no build step)
 tests/            pytest: test_mapping, test_romm, test_upgrades (temporary folders only)
 .github/workflows tests.yml (every push), release.yml (a release per new version)
+unraid/           docker-compose.yml for Unraid's Compose Manager (builds from GitHub)
 ```
 
 ---

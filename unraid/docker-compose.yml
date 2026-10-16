@@ -1,0 +1,26 @@
+# ROM Mapper for Unraid's Compose Manager: builds the image on the server straight from GitHub.
+# Docker > Compose > Add New Stack "rom-mapper" > Edit Stack > Compose File: paste this, set the
+# paths, then Compose Up. Every "Compose Up" fetches the latest code from GitHub and rebuilds.
+services:
+  rom-mapper:
+    build:
+      context: https://github.com/sireteanu/rom-mapper.git#main
+    pull_policy: build
+    image: rom-mapper:latest
+    container_name: rom-mapper
+    user: "99:100"                  # nobody:users, the owner of files on Unraid shares
+    ports:
+      - "8085:8085"
+    environment:
+      - TZ=America/New_York
+      - CONFIG_DIR=/config
+      - SRC_BASE=/path/to/shares/roms       # first source folder (change the list in the page)
+      - DEST_PATH=/path/to/shares/mapping   # where the frontend folders of links are made
+    volumes:
+      - /path/to/appdata/rom-mapper:/config
+      # ONE folder containing everything ROM Mapper uses, at the SAME path inside the container
+      # (links are absolute). Folders are then picked in the page.
+      - /path/to/shares:/path/to/shares
+    labels:
+      net.unraid.docker.webui: "http://[IP]:[PORT:8085]/"
+    restart: unless-stopped
