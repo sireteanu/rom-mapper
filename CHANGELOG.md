@@ -5,6 +5,15 @@ release. Newest first.
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-10-18
+
+### Improved
+- **Less disk reading.** The RomM tab and scheduled scans now re-read only the download folders
+  that changed (a full read still happens every hour and when you click **Refresh**).
+- **A hidden page stops refreshing**, so a forgotten browser tab no longer keeps your disks awake.
+  It refreshes as soon as you come back to it.
+- RomM's platform list is loaded once instead of with every refresh of the RomM tab.
+
 ## [1.0.1] - 2026-10-08
 
 ### Changed

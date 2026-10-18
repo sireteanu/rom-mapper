@@ -26,6 +26,10 @@ Docker (Unraid). See README.md for the full reference.
 - Older files must keep working: any change to stored formats gets a conversion and a case in
   `tests/test_upgrades.py` (old `Rom_Mapping.csv`, rows without labels, one-folder and Rom Sync
   `romm-mapper.json`).
+- Disk reads: RomM folder counts (`romm.folders_from_disk`) re-list only folders whose mtime changed,
+  with a full read every hour and on Refresh (Unraid shares don't always update a folder's date);
+  the page doesn't refresh while its tab is hidden; RomM's platform list comes from
+  `/api/romm/platforms` once.
 - The container runs as 99:100 and sees one host folder at the same path; links are absolute
   (frontends) or relative (RomM).
 

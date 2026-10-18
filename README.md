@@ -131,7 +131,8 @@ versions) belongs to the **first** source folder.
 with `.`, folders named `media`, and links are skipped. Folders that aren't in the mapping yet are
 *New*; with *Auto-add new folders* they're added to the mapping (unmapped). Mapped folders that no
 longer exist are *Missing* - their links wait until they come back. The page re-reads the folders
-when it refreshes (every 30 s, reusing a listing up to 10 s old).
+when it refreshes (every 30 s, reusing a listing up to 10 s old). A page in a hidden browser tab
+doesn't refresh, so a forgotten tab doesn't keep disks awake; it refreshes as soon as you come back.
 
 ### Links (Resync)
 
@@ -165,7 +166,9 @@ its roms folder. The **RomM** tab maps your download folders to that without mov
 the other tab.
 
 - **Download folders**: a list in priority order (add, remove, move up/down). Each is read from
-  disk completely; rows start with the folder's name. Folders get a platform from built-in rules
+  disk completely (counts are reused for 30 s; after that only folders whose date changed are
+  listed again, with a full read every hour and on **Refresh**, because on shares spread over
+  several disks a folder's date doesn't always change); rows start with the folder's name. Folders get a platform from built-in rules
   for lolroms' folder tree (e.g. `Nintendo/Super Famicom` -> `snes`), or automatically when a folder
   right inside a download folder is named exactly like a RomM platform (`snes`). Subfolders join
   their parent's platform (variants, translations), except raw dumps and similar (skipped) and
@@ -255,6 +258,7 @@ JSON throughout; the page uses nothing else.
 | `PUT /api/settings` | Schedule settings |
 | `POST /api/import` (CSV text) | Parse a mapping CSV -> `{frontends, rows, problems}` (not saved) |
 | `GET /api/activity` | Recent events |
+| `GET /api/romm/platforms` | RomM's platform list (`slugs`), loaded once by the page |
 | `GET /api/romm` · `PUT /api/romm/options` · `PUT /api/romm/map {path, action}` · `POST /api/romm/links` | RomM dialog data, options/download folders, a folder's choice, create/update the platform links |
 
 ---
