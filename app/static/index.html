@@ -650,7 +650,14 @@ async function saveSettings() {
 window.addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
 
 // Refresh periodically to pick up scheduled scans/resyncs (keeps your edits if you have any).
-setInterval(() => { load({ keepEdits: true }).catch(() => {}); loadActivity(); }, 30000);
+// A hidden tab doesn't refresh (no disk reads while nobody looks); coming back refreshes at once.
+function refreshNow() { load({ keepEdits: true }).catch(() => {}); loadActivity(); }
+setInterval(() => { if (!document.hidden) refreshNow(); }, 30000);
+let hiddenAt = 0;
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { hiddenAt = Date.now(); return; }
+  if (Date.now() - hiddenAt > 30000) refreshNow();
+});
 
 // ------------------------------------------------------------- import / export
 function csvCell(v) {
@@ -902,8 +909,10 @@ $("srcSave").onclick = async () => {
       body.append(tr);
     }
   }
+  let SLUGS = [];                      // RomM's platform list, loaded once (/api/romm/platforms)
   function loadR(d) {
     R = d;
+    R.slugs = SLUGS;
     $("rRommFolder").value = d.options.romm_folder || "";
     $("rVar").checked = !!d.options.variants;
     $("rLayout").value = d.options.layout || "category";
@@ -934,7 +943,10 @@ $("srcSave").onclick = async () => {
   $("rFilter").addEventListener("change", () => { show = $("rFilter").value; render(); });
   window.loadRomm = async () => {
     if (!R) $("rOut").textContent = "Loading…";
-    try { loadR(await api("GET", "/api/romm")); } catch (e) { $("rOut").textContent = e.message; }
+    try {
+      if (!SLUGS.length) SLUGS = (await api("GET", "/api/romm/platforms")).slugs;
+      loadR(await api("GET", "/api/romm"));
+    } catch (e) { $("rOut").textContent = e.message; }
   };
   $("rRefresh").onclick = async () => { loadR(await api("GET", "/api/romm?fresh=1")); toast("Folders read again."); };
   $("rApply").onclick = async () => {
