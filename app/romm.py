@@ -621,7 +621,7 @@ def describe_links(res: dict) -> str:
 IGNORED_FILES = {"thumbs.db", "desktop.ini"}
 
 
-def folders_from_roots(links_dir: str, sources: list) -> tuple:
+def folders_from_roots(links_dir: str, sources: list, full: bool = True) -> tuple:
     """Read every download folder -> ({path relative to links_dir: (files, files)}, [roots]).
     Folders above a root (e.g. "sets" for links_dir/sets/collection) are added with no files."""
     out = {"": (0, 0)}
@@ -632,26 +632,61 @@ def folders_from_roots(links_dir: str, sources: list) -> tuple:
         parts = root.split("/")
         for i in range(1, len(parts)):
             out.setdefault("/".join(parts[:i]), (0, 0))
-        for p, n in folders_from_disk(src).items():
+        for p, n in folders_from_disk(src, full).items():
             out[root + ("/" + p if p else "")] = n
     return out, roots
 
 
-def folders_from_disk(source: str) -> dict:
+# Folder counts from the last read, per absolute folder: (mtime_ns, files, subfolders). A folder's
+# date changes whenever something is added, removed or renamed directly inside it, so an unchanged
+# date means its count and subfolders can be reused without listing it again.
+_dir_cache: dict = {}
+
+
+def folders_from_disk(source: str, full: bool = True) -> dict:
     """{folder path relative to source: (files in it, files in it)} for every folder under source.
     Rom Sync's catalog knew what was listed on the site; here the disk is the truth, so both
     numbers are the files actually there. Dot-files (Rom Sync's manifest), unfinished downloads
-    (.part) and folder links are left out."""
-    out = {"": (0, 0)}
+    (.part) and folder links are left out. full=False lists only folders whose date changed since
+    the last read (one stat per folder instead of reading every folder)."""
+    out = {}
     source = os.path.abspath(source)
-    for root, dirs, files in os.walk(source):
-        dirs[:] = sorted(d for d in dirs if not d.startswith(".")
-                         and not os.path.islink(os.path.join(root, d)))
-        rel = os.path.relpath(root, source).replace(os.sep, "/")
-        rel = "" if rel == "." else rel
-        n = sum(1 for f in files if not f.startswith(".") and not f.endswith(".part")
-                and f.lower() not in IGNORED_FILES)
+
+    def visit(path, rel):
+        try:
+            mtime = os.stat(path).st_mtime_ns
+        except OSError:
+            return
+        hit = None if full else _dir_cache.get(path)
+        if hit and hit[0] == mtime:
+            _, n, subs = hit
+        else:
+            n, subs = 0, []
+            try:
+                with os.scandir(path) as it:
+                    for e in it:
+                        name = e.name
+                        if name.startswith("."):
+                            continue
+                        try:
+                            if e.is_dir():
+                                if not e.is_symlink():          # folder links are left out
+                                    subs.append(name)
+                                continue
+                        except OSError:
+                            continue
+                        if not name.endswith(".part") and name.lower() not in IGNORED_FILES:
+                            n += 1
+            except OSError:
+                return
+            subs.sort()
+            _dir_cache[path] = (mtime, n, subs)
         out[rel] = (n, n)
+        for d in subs:
+            visit(os.path.join(path, d), f"{rel}/{d}" if rel else d)
+
+    visit(source, "")
+    out.setdefault("", (0, 0))
     return out
 
 

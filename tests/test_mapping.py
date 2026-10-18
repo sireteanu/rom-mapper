@@ -198,3 +198,9 @@ def test_page_has_a_tab_for_frontend_links_and_one_for_romm(env):
     html = c.get("/").get_data(as_text=True)
     assert 'data-pane="links"' in html and 'data-pane="romm"' in html
     assert 'id="paneLinks"' in html and 'id="paneRomm"' in html
+
+
+def test_a_hidden_page_stops_refreshing(env):
+    server, c = env.start()
+    html = c.get("/").get_data(as_text=True)
+    assert "visibilitychange" in html and "document.hidden" in html

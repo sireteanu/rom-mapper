@@ -107,3 +107,33 @@ def test_settings_file_is_written_safely(env):
     saved = json.loads(env.read_config("romm-mapper.json"))
     assert saved["map"] == {"collection/psx": "exclude"} and saved["sources"] == [lol, rom]
     assert not [n for n in os.listdir(env.config) if n.startswith(".tmp-")]
+
+
+def test_folder_counts_reread_only_changed_folders(env, monkeypatch):
+    server, c, d, lol, rom = setup(env)
+    romm = server.romm
+    full = romm.folders_from_disk(lol)
+    os.symlink(env.path("roms", "collection"), os.path.join(lol, "linked"))     # folder links stay out
+    with open(os.path.join(lol, "SONY", "PlayStation", "game.chd"), "w") as f:
+        f.write("x")
+    listed = []
+    real = os.scandir
+    monkeypatch.setattr(romm.os, "scandir", lambda p: (listed.append(p), real(p))[1])
+    quick = romm.folders_from_disk(lol, full=False)
+    before = full["SONY/PlayStation"][0]
+    assert quick["SONY/PlayStation"] == (before + 1, before + 1), "a new file is seen"
+    assert "linked" not in quick
+    assert sorted(listed) == sorted([lol, os.path.join(lol, "SONY", "PlayStation")]), \
+        "only the folders whose date changed are listed again"
+    assert {k: v for k, v in quick.items() if k != "SONY/PlayStation"} == \
+        {k: v for k, v in full.items() if k != "SONY/PlayStation"}
+    listed.clear()
+    assert romm.folders_from_disk(lol, full=True) == quick and len(listed) > 2      # Refresh reads everything
+
+
+def test_platform_list_is_loaded_once_not_with_every_refresh(env):
+    server, c, d, lol, rom = setup(env)
+    assert "slugs" not in c.get("/api/romm").get_json()
+    slugs = c.get("/api/romm/platforms").get_json()["slugs"]
+    assert "snes" in {x["slug"] for x in slugs} and len(slugs) > 100
+    assert set(slugs[0]) == {"slug", "name", "family", "kind"}

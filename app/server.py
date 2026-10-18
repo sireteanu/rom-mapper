@@ -561,9 +561,14 @@ def romm_check(sources, links_dir):
     return None
 
 
+FULL_READ_EVERY = 3600     # s; between full reads only folders whose date changed are listed
+
+
 def romm_mapping(fresh=False):
-    """-> (Mapping or None, saved settings, error). Folder counts are cached for 30 s (walking a
-    big library takes a moment)."""
+    """-> (Mapping or None, saved settings, error). Folder counts are reused for 30 s; after that
+    only folders whose date changed are listed again. fresh=True (Refresh button, new download
+    folders) or an hour since the last full read lists every folder again - on some shares (e.g.
+    Unraid's, spread over several disks) a folder's date doesn't always change."""
     saved = romm_saved()
     sources = [p.rstrip("/") for p in saved.get("sources") or []]
     links_dir = romm_links_dir(saved, sources)
@@ -572,8 +577,12 @@ def romm_mapping(fresh=False):
         return None, saved, error
     c = _romm_cache
     key = (tuple(sources), links_dir)
-    if fresh or c["key"] != key or time.time() - c["at"] > 30:
-        c.update(key=key, at=time.time(), folders=romm.folders_from_roots(links_dir, sources))
+    now = time.time()
+    full = fresh or c["key"] != key or now - c.get("full_at", 0) > FULL_READ_EVERY
+    if full or now - c["at"] > 30:
+        c.update(key=key, at=now, folders=romm.folders_from_roots(links_dir, sources, full=full))
+        if full:
+            c["full_at"] = now
     folders, roots = c["folders"]
     return romm.Mapping(folders, romm.options_from({"romm": saved}), links_dir, roots), saved, None
 
@@ -582,8 +591,7 @@ def romm_view(fresh=False):
     m, saved, error = romm_mapping(fresh)
     opt = romm.options_from({"romm": saved})
     sources = saved.get("sources") or []
-    slugs = [{"slug": k, "name": v[0], "family": v[1], "kind": v[2]} for k, v in sorted(romm.PLATFORMS.items())]
-    base = {"sources": sources, "error": error, "slugs": slugs,
+    base = {"sources": sources, "error": error,
             "links_dir": romm_links_dir(saved, sources),
             "options": {**{k: opt[k] for k in ("variants", "layout", "links_dir", "keep_links")},
                         "romm_folder": romm.Mapping({"": (0, 0)}, opt).romm_folder()}}
@@ -629,7 +637,8 @@ def scheduler_loop():
             last_sync = parse_iso((state["last_sync"] or {}).get("time"))
             if s["scan_enabled"] and now - last_scan >= max(1, float(s["scan_interval_minutes"])) * 60:
                 run_scan("scheduled")
-                if romm_saved().get("keep_links") and romm_saved().get("sources"):
+                romm_settings = romm_saved()
+                if romm_settings.get("keep_links") and romm_settings.get("sources"):
                     try:
                         romm_apply_links("scheduled")
                     except Exception as e:  # noqa: BLE001
@@ -717,6 +726,13 @@ def api_settings():
 @app.get("/api/romm")
 def api_romm():
     return jsonify(romm_view(fresh=request.args.get("fresh") == "1"))
+
+
+@app.get("/api/romm/platforms")
+def api_romm_platforms():
+    """RomM's platform list. It only changes with a new version, so the page loads it once."""
+    slugs = [{"slug": k, "name": v[0], "family": v[1], "kind": v[2]} for k, v in sorted(romm.PLATFORMS.items())]
+    return jsonify({"slugs": slugs})
 
 
 @app.put("/api/romm/options")
