@@ -230,7 +230,7 @@
   </div>
   <div class="actions" id="rommActions" hidden>
     <button id="rRefresh" title="Read the download folders again">Refresh</button>
-    <button id="rApply" class="primary" type="button" title="Create, correct or remove the platform links">Create / update links now</button>
+    <button id="rApply" type="button" title="Remove the platform links older versions made (RomM reads your folders by name now)" hidden>Remove old platform links</button>
   </div>
 </header>
 <main id="paneLinks">
@@ -280,10 +280,11 @@
 </main>
 
 <main id="paneRomm" class="romm" hidden>
-  <p class="intro">Pick the RomM platform for each of your folders. RomM then sees them either by their own names
-    (renamed in RomM's <code>config.yml</code>, e.g. amigacdtv &rarr; commodore-cdtv) or through a <b>platform link</b>
-    per platform (snes &rarr; lolroms/Nintendo/Super Famicom). Nothing is moved or copied. Copy the RomM compose line
-    and the config into RomM, restart RomM and scan its library.</p>
+  <p class="intro">Pick the RomM platform for each folder in your download folder. RomM reads that folder
+    directly: folders named like a platform (<code>snes</code>) need nothing, others are renamed in RomM's
+    <code>config.yml</code> (<code>amigacdtv</code> &rarr; <code>commodore-cdtv</code>), and folders without a platform are
+    left out. Nothing is moved or copied. Copy the config into RomM's <code>config.yml</code>, restart RomM and scan its
+    library.</p>
   <div class="field"><span>Download folders</span>
     <div id="rSources" class="sources"></div>
     <div class="srcadd"><input type="text" id="rSourceNew" placeholder="/path/to/downloads">
@@ -293,38 +294,13 @@
       <div class="ptext"></div>
       <div class="pbar" role="progressbar" aria-label="Reading the download folders" aria-valuemin="0" aria-valuemax="100"><div class="pfill"></div></div>
     </div>
-    <small>Each folder is mapped into RomM (for example a lolroms download folder and a RomM-style collection).
-      When two give the same platform, the one <b>higher in the list</b> is used - exclude the other, or change the order.
+    <small>RomM reads one folder (its <code>roms</code> folder): the first one in this list. In RomM's compose file,
+      map it as <code>/romm/library/roms</code>. Only the folders directly inside it can be platforms.
       <b>Levels</b>: how deep the list goes. <b>1 level</b> suits a folder with one folder per system (everything inside a
-      system goes with it and isn't read, which is much faster); <b>All levels</b> is needed for lolroms' nested folders.
+      system goes with it and isn't read, which is much faster); more levels show the subfolders, e.g. to exclude some.
       Folders must be mounted into this container at the same path.</small></div>
-  <div class="field" role="radiogroup" aria-labelledby="rMethodLbl"><span id="rMethodLbl">How RomM sees your folders</span>
-    <label class="check"><input type="radio" name="rMethod" value="names"> <span><b>RomM folder names</b> - RomM reads the
-      download folder itself and <code>config.yml</code> renames folders to platforms. No links. For one download folder
-      with one folder per system.</span></label>
-    <label class="check"><input type="radio" name="rMethod" value="links"> <span><b>Platform links</b> - a link named after
-      each platform, next to the download folders. Needed for nested downloads (lolroms) or several download folders.</span></label>
-  </div>
   <p id="rError" class="bad" hidden></p>
   <p id="rApplied" class="hint" hidden></p>
-  <div class="box" id="rLinksBox">
-    <div class="two">
-      <label class="field"><span>Links folder</span><input type="text" id="rLinkDir">
-        <small id="rLinkHint">Must contain the download folder. Map this same folder as RomM's roms folder.</small></label>
-      <div class="field"><span>&nbsp;</span><small>Use <b>Create / update links now</b> at the top to make or refresh them.</small></div>
-    </div>
-    <label class="check"><input type="checkbox" id="rKeep"> Update the links with every scan (turned on by the first "Create / update links now")</label>
-  </div>
-  <div class="two" id="rLinksOpts">
-    <label class="field"><span>RomM folder</span><input type="text" id="rRommFolder" placeholder="/romm/library/roms/lolroms">
-      <small>Where the first download folder appears inside RomM's container (RomM's library path is worked out from it).</small></label>
-    <label class="field"><span>Subfolders in config.yml</span>
-      <select id="rLayout">
-        <option value="category">{category} levels - also picks up subfolders added later</option>
-        <option value="folders">Exact folder names - only the subfolders listed here</option>
-      </select></label>
-  </div>
-  <label class="check" id="rVarRow"><input type="checkbox" id="rVar"> Include subfolders such as T-En, hacks and add-ons in their platform</label>
   <label class="field"><span>Never read folders named</span>
     <input type="text" id="rSkip" placeholder="media, Extras">
     <small>Comma-separated folder names; <code>*</code> and <code>?</code> work (<code>*.bak</code>), case doesn't matter.
@@ -343,7 +319,7 @@
     </section>
     <section>
       <div class="bar">
-        <div class="tabs"><button class="tab on" data-out="compose">RomM compose</button><button class="tab" data-out="config">config.yml</button></div>
+        <div class="tabs"><button class="tab on" data-out="config">config.yml</button></div>
         <button id="rCopy">Copy</button>
         <button class="ref-btn" data-out="list" title="Every platform RomM knows">RomM platforms list</button>
       </div>
@@ -780,21 +756,26 @@ $("srcSave").onclick = async () => {
   const q = (sel, el = document) => el.querySelector(sel);
   const num = (n) => (n || 0).toLocaleString();
   const HELP = {
-    compose: "For RomM's container (its compose file): this line makes the links folder RomM's roms folder - replace RomM's own .../romm/library/roms line with it.",
-    composeNames: "For RomM's container (its compose file): this line makes your download folder RomM's roms folder - replace RomM's own .../romm/library/roms line with it.",
     config: "Merge into RomM's config.yml (in its /romm/config folder), keeping your other settings.",
   };
-  let R = null, tab = "compose", outTab = "compose";
+  let R = null, tab = "config", outTab = "config";
   const pending = {};
 
   const label = (v) => v === "exclude" ? "exclude - leave out of RomM" : v === "firmware" ? "firmware (automatic)"
-    : v === "" ? "- pick a platform -" : (() => { const p = R.slugs.find(x => x.slug === v); return p ? `${v} - ${p.name}` : v; })();
+    : v === "" ? "- pick a platform -" : v.startsWith("cat:") ? `${label(v.slice(4))} · categories`
+    : (() => { const p = R.slugs.find(x => x.slug === v); return p ? `${v} - ${p.name}` : v; })();
   // ---- the platform picker: one searchable list, opened from a row's button
   const pk = { el: null, row: null, btn: null, cur: "", items: [], shown: [], active: 0 };
   function pickerChoices(r, cur) {
     const out = [];
     if (r.action) out.push({ v: "", t: r.auto ? `automatic: ${label(r.auto)}` : "no platform (remove your choice)", k: "automatic remove clear" });
     else if (cur === "") out.push({ v: "", t: label(""), k: "pick" });
+    if (r.top && r.kind === "platform") {        // a system: its subfolders can be categories
+      const slug = cur.startsWith("cat:") ? cur.slice(4) : cur;
+      out.push(cur.startsWith("cat:")
+        ? { v: slug, t: "Subfolders are games again (no categories)", k: "categories games subfolders" }
+        : { v: "cat:" + slug, t: "Subfolders are categories (games inside them)", k: "categories games subfolders" });
+    }
     if (cur === "firmware" || r.auto === "firmware") out.push({ v: "firmware", t: label("firmware"), k: "firmware bios" });
     out.push({ v: "exclude", t: label("exclude"), k: "exclude leave out skip" });
     for (const p of R.slugs) out.push({ v: p.slug, t: `${p.slug} - ${p.name}`, fam: p.family, k: `${p.slug} ${p.name} ${p.family}`.toLowerCase() });
@@ -866,7 +847,8 @@ $("srcSave").onclick = async () => {
     inp.focus();
   }
   function result(r) {
-    if (r.kind === "platform") return [r.used ? `in RomM as roms/${r.slug}` : `roms/${r.slug} (no files yet)`, r.custom ? "warn" : "ok"];
+    if (r.kind === "platform") return [!r.used ? `${r.slug} (no files yet)` : r.value.startsWith("cat:")
+      ? `in RomM as ${r.slug}, subfolders are categories` : `in RomM as ${r.slug}`, r.custom ? "warn" : "ok"];
     if (r.kind === "merge") return [r.used ? `part of ${r.slug}` : `part of ${r.slug} (no files yet)`, "ok"];
     if (r.kind === "bios") return [`firmware: bios/${r.slug}`, "ok"];
     if (r.kind === "skip") return ["left out of RomM", "none"];
@@ -1005,11 +987,10 @@ $("srcSave").onclick = async () => {
       if (r.group) {                  // a folder that only holds other folders
         [text, cls] = r.value === "exclude" ? ["left out of RomM, with everything inside", "none"]
           : r.value ? [`${r.value} for the folders inside`, "ok"]
-          : (d.options || {}).mode === "names" ? ["left out of RomM (no platform)", "none"] : ["folder", "none"];
+          : ["left out of RomM (no platform)", "none"];
       }
       if (r.note) { text = r.note; cls = "warn"; }
-      else if (r.conflict && (d.options || {}).mode === "names") { text = `left out (${r.conflict.split("/").pop()} is ${r.slug})`; cls = "warn"; }
-      else if (r.conflict) { text = `not linked (${r.conflict} used)`; cls = "warn"; tr.children[3].title = `${r.slug} also comes from ${r.conflict}, which is higher in the list`; }
+      else if (r.conflict) { text = `left out (${r.conflict.split("/").pop()} is ${r.slug})`; cls = "warn"; }
       else if (r.excluded_by) { text = `left out (in ${r.excluded_by})`; cls = "none"; }
       else if (roots.has(r.path) && r.kind === "unmapped") { text = "download folder"; cls = "none"; }
       else if (overlap.has(r.path)) text += " (used)";
@@ -1032,16 +1013,9 @@ $("srcSave").onclick = async () => {
     const isList = tab === "list";
     $("rOut").hidden = isList; $("rList").hidden = !isList; $("rCopy").hidden = isList;
     if (isList) renderList(); else $("rOut").textContent = d.outputs[tab] || "";
-    const names = (d.options || {}).mode === "names";
-    $("rHelp").textContent = isList ? "" : HELP[tab === "compose" && names ? "composeNames" : tab];
-    $("rLinksBox").hidden = names; $("rLinksOpts").hidden = names; $("rVarRow").hidden = names;
-    document.querySelectorAll('input[name="rMethod"]').forEach(b => { b.checked = b.value === (names ? "names" : "links"); });
-    $("rApply").textContent = names ? "Remove old platform links" : "Create / update links now";
-    $("rApply").title = names ? "Remove platform links made earlier (RomM reads the folders by name now)"
-                              : "Create, correct or remove the platform links";
-    $("rLinkDir").placeholder = d.links_dir || "";
-    $("rLinkHint").textContent = !d.sources.length ? "Add a download folder first."
-      : `Links go in ${d.links_dir}, next to the download folders. Map ${d.links_dir} as RomM's roms folder.`;
+    $("rHelp").textContent = isList ? "" : HELP[tab];
+    $("rApply").hidden = !d.old_links;
+    if (d.old_links) $("rApply").textContent = `Remove ${num(d.old_links)} old platform link${d.old_links === 1 ? "" : "s"}`;
     document.querySelectorAll("#paneRomm .tab").forEach(t => t.classList.toggle("on", t.dataset.out === tab));
     q("#paneRomm .ref-btn").classList.toggle("on", isList);
     $("rApply").disabled = !!d.error || reading;
@@ -1066,7 +1040,7 @@ $("srcSave").onclick = async () => {
   // ---- reading the download folders in the background (adding/removing one, Refresh, first open)
   let reading = false;
   const EMPTY = { rows: [], platforms: [], firmware: [], warnings: [], conflicts: [], links: {},
-                  summary: { platforms: 0, firmware: 0, files: 0 }, outputs: { compose: "", config: "" } };
+                  summary: { platforms: 0, firmware: 0, files: 0 }, outputs: { config: "" } };
   function showProgress(p) {
     const box = $("rProgress"), bar = q(".pbar", box);
     box.hidden = !p;
@@ -1118,11 +1092,6 @@ $("srcSave").onclick = async () => {
     if (d.reading) { follow(d); return; }
     R = d;
     R.slugs = SLUGS;
-    $("rRommFolder").value = d.options.romm_folder || "";
-    $("rVar").checked = !!d.options.variants;
-    $("rLayout").value = d.options.layout || "category";
-    $("rKeep").checked = !!d.options.keep_links;
-    $("rLinkDir").value = d.options.links_dir || "";
     if (document.activeElement !== $("rSkip")) $("rSkip").value = (d.options.skip_names || []).join(", ");
     render();
   }
@@ -1134,11 +1103,9 @@ $("srcSave").onclick = async () => {
   }
   async function options(extra = {}) {
     try {
-      loadR(await api("PUT", "/api/romm/options", { romm_folder: $("rRommFolder").value, variants: $("rVar").checked,
-        layout: $("rLayout").value, keep_links: $("rKeep").checked, links_dir: $("rLinkDir").value, ...extra }));
+      loadR(await api("PUT", "/api/romm/options", extra));
     } catch (e) { alert(e.message); }
   }
-  ["rRommFolder", "rVar", "rLayout", "rKeep", "rLinkDir"].forEach(id => $(id).addEventListener("change", () => options()));
   const addSource = () => {
     const v = $("rSourceNew").value.trim();
     if (!v) return;
@@ -1152,9 +1119,6 @@ $("srcSave").onclick = async () => {
   let findTimer = null;
   $("rFind").addEventListener("input", () => { clearTimeout(findTimer); findTimer = setTimeout(render, 150); });
   $("rSkip").addEventListener("change", () => options({ skip_names: $("rSkip").value }));
-  document.querySelectorAll('input[name="rMethod"]').forEach(b => b.addEventListener("change", () => {
-    if (b.checked) options({ mode: b.value });
-  }));
   window.loadRomm = async () => {
     if (!R) $("rOut").textContent = "Loading…";
     try {
@@ -1166,6 +1130,7 @@ $("srcSave").onclick = async () => {
     try { loadR(await api("GET", "/api/romm?fresh=1")); } catch (e) { alert(e.message); }
   };
   $("rApply").onclick = async () => {
+    if (!confirm("Remove the platform links an older version made? Only those links are removed - your folders stay.")) return;
     const out = $("rApplied"); $("rApply").disabled = true;
     try {
       const d = await api("POST", "/api/romm/links"); loadR(d);

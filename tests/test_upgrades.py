@@ -71,7 +71,22 @@ def test_romm_settings_from_rom_sync_are_converted(env):
     rows = {r["path"]: r for r in d["rows"]}
     assert rows["lolroms/Konami - Picno"]["value"] == "exclude"
     assert rows["lolroms/Nintendo/Super Famicom"]["value"] == "snes"
-    assert d["options"]["layout"] == "folders" and d["options"]["keep_links"] is True
+    assert d["options"] == {"skip_names": ["media"]}, "settings of the platform links era are ignored"
+
+
+def test_settings_from_the_platform_links_versions_still_load(env):
+    """Before 1.0.9: links folder, RomM folder, layout, variants, keep_links and a mode. All are
+    ignored now (RomM reads the folders by name); the choices and folders stay."""
+    rom = env.path("roms", "collection")
+    make_dirs(rom, "amigacdtv", "snes")
+    env.write_config("romm-mapper.json", json.dumps(
+        {"sources": [rom], "map": {"collection/amigacdtv": "commodore-cdtv"}, "mode": "links",
+         "keep_links": True, "romm_folder": "/romm/library/roms/lolroms", "layout": "folders",
+         "variants": False, "links_dir": env.path("roms")}))
+    server, c = env.start()
+    d = c.get("/api/romm").get_json()
+    assert d["error"] is None and d["options"] == {"skip_names": ["media"]}
+    assert '"amigacdtv": "commodore-cdtv"' in d["outputs"]["config"]
 
 
 def test_first_romm_version_with_one_source_is_converted(env):

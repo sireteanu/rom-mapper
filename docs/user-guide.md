@@ -21,10 +21,6 @@ folder that contains all your ROM folders and the mapping folder, at the **same 
 container (for example `/path/to/shares:/path/to/shares`). After that you never need to change the
 container to use another folder.
 
-If RomM's download folders are somewhere else, add a second mapping for RomM, also at the same
-path: the folder that **holds** the download folders (see
-[RomM in another place](../README.md#docker-unraid-or-any-docker-host) in the README).
-
 Open `http://YOUR-SERVER:8085/`. The version you're running is next to the title; click it to see
 what changed. After an update, reload the page - a banner reminds you if a tab was left open. The page has two tabs at the top: **Frontend links** (steps 2-6) and **RomM** (step 7).
 Each has its own buttons on the right.
@@ -89,40 +85,26 @@ if it's already due.
 
 ## 7. RomM
 
-Open the **RomM** tab (or go to `http://YOUR-SERVER:8085/#romm`).
+Open the **RomM** tab (or go to `http://YOUR-SERVER:8085/#romm`). RomM reads your ROM folder by
+name - nothing is moved and no links are made.
 
-First choose **How RomM sees your folders**:
+1. **Download folder** - add the folder with one folder per system (like `/path/to/roms`). In RomM's
+   compose file, map that same folder as RomM's roms folder: `/path/to/roms:/romm/library/roms`.
+   Reading a big folder takes a while: a progress bar shows how far it is. **1 level** gives one row
+   per system and reads fastest; more levels show subfolders (e.g. to exclude some). Folders you
+   never want in RomM (like `media`, or `Extras`) go in **Never read folders named**.
+2. **Pick the platforms** - folders named like a RomM platform (`snes`) are done already. Click
+   another folder's platform and type to search (`commodore`, `sega`…), or pick **exclude** to leave
+   it out. Each choice is saved right away. The table is a tree: click ▸ to see what's inside, or
+   use **Find a folder**.
+3. **Categories** - if a system's subfolders group its games (`atari2600/Homebrew`,
+   `atari2600/Hacks`), open its picker and choose **Subfolders are categories**. Leave it off when each
+   subfolder is one game (multi-disc games).
+4. **config.yml** - copy it into RomM's `config.yml` (keep your other settings), restart RomM and
+   scan its library.
 
-- **RomM folder names** if you have one ROM folder with one folder per system (like `roms/snes`,
-  `roms/amigacdtv`). RomM reads that folder directly; folders whose name isn't a RomM platform are
-  renamed in RomM's `config.yml` (`amigacdtv: commodore-cdtv`). No links.
-- **Platform links** for nested download folders (lolroms' `Nintendo/Super Famicom`) or several
-  download folders.
-
-1. **Download folders** - add the folders RomM should see, in order of preference. The table lists
-   every folder with files and the RomM platform it becomes. Most are filled in already.
-   Reading a big folder takes a while: a progress bar shows how far it is.
-   For a folder with one folder per system (like a `roms` folder), choose **1 level** next to it:
-   you get one row per system instead of every folder inside them, and it reads much faster.
-   Keep **All levels** for a lolroms download folder.
-   The table is a tree: click ▸ next to a folder to see what's inside, or type in **Find a folder**.
-   To keep the list short and the reads fast, set **Levels** to how deep you need: with **2 levels**
-   on a `roms` folder you get `clonehero` and `clonehero/SongPacks`, but not every song pack inside.
-   Excluded folders aren't read inside at all.
-   Folders you never want in RomM (like `media`, or `Extras`) go in **Never read folders named** -
-   they're skipped everywhere and RomM ignores them too.
-2. **Check the platforms** - click a folder's platform and type to search (`snes`, `sega`…), or pick **exclude** to leave
-   it (and everything inside it) out of RomM. Each choice is saved right away.
-3. **Overlaps** - if two download folders give the same platform, the higher one in the list is
-   used and the other is marked *not linked*. Choose **Overlaps only** in the filter to see them;
-   exclude the one you don't want, or move a folder up or down.
-4. **Create / update links now** (top right) - makes one link per platform in the links folder (by default the
-   folder that holds your download folders) and keeps them updated with every scan from then on.
-   In RomM's compose file, map the links folder as RomM's roms folder - the **RomM compose** tab shows
-   the line.
-5. **config.yml** - copy it into RomM's `config.yml` (keep your other settings), restart RomM and
-   scan its library. BIOS folders aren't linked: copy the folders the dialog lists into RomM's bios
-   folder.
+Upgrading from a version that made platform links? **Remove old platform links** at the top removes
+them (only the links ROM Mapper made).
 
 **RomM platforms list** shows every platform RomM knows, with a search box.
 
@@ -131,14 +113,10 @@ First choose **How RomM sees your folders**:
 **"Source folder not found" / "Folder not found".** The folder isn't inside the folder mounted into
 the container, or the path has a typo. Paths must be the same as on the host.
 
-**RomM: "not inside a folder mounted into the container".** RomM's platform links go next to the
-download folders. Mount the folder that holds them (not the download folder itself), at the same
-path, or pick a links folder inside a mounted folder.
-
 **A link isn't created.** Check the resync output: the folder may be *Missing*, the name may be
 used twice for that frontend, or a real file or folder may already be in the way.
 
 **Permission denied.** The container's user (Unraid: `nobody`) needs write access to the mapping
-folder, the config folder and, for RomM, the links folder.
+folder and the config folder.
 
 **Something else?** The **Activity** card and the container log show what happened.

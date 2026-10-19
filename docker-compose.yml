@@ -13,7 +13,7 @@ services:
       # First source folder for the grid until you set the list under "Source folders" in the UI
       SRC_BASE: ${ROMS_PATH}
       DEST_PATH: ${MAPPING_PATH}
-      # RomM download folders (";"-separated) until you set them in the RomM dialog
+      # RomM: the folder RomM reads as its roms folder, until you set it on the RomM tab
       ROMM_SOURCE: ${ROMM_SOURCE:-}
     volumes:
       # The app's settings and mapping (a .bak is kept on every save).

@@ -5,6 +5,34 @@ release. Newest first.
 
 ## [Unreleased]
 
+## [1.0.9] - 2026-10-19
+
+### Changed
+- **One way for RomM: by folder name, no links.** RomM reads your download folder directly. The
+  generated `config.yml` renames folders to platforms (`system.platforms`, e.g.
+  `amigacdtv: commodore-cdtv`), leaves out the folders without a platform (`exclude.platforms`),
+  and adds category templates for the systems you choose. The *How RomM sees your folders* choice,
+  platform links, the links folder, *RomM folder*, *Subfolders in config.yml*, *Include subfolders
+  such as T-En* and the scheduled link updates are gone.
+- RomM reads one folder: only the first download folder is used. Nested platforms (lolroms'
+  `Nintendo/Super Famicom`) can't be mapped any more.
+
+### New
+- **Subfolders as categories.** In a system's platform picker: *Subfolders are categories (games
+  inside them)*. `config.yml` then gets `roms/{platform}/{game}` + `roms/{platform}/{category}/{game}`
+  for that system, keyed by its folder name (that's how RomM looks them up).
+- **Remove old platform links** appears while links made by an earlier version are still there,
+  and removes only those.
+
+### Improved
+- When two folders are set to the same platform, the folder already named like it wins (`snes` over
+  `sfc`).
+- Firmware folders inside a system aren't read by RomM as games.
+
+### Removed
+- The **RomM compose** tab and `docker-compose.romm.yml` (with its `.env` and Unraid lines): map
+  your download folder as RomM's `/romm/library/roms` yourself.
+
 ## [1.0.8] - 2026-10-19
 
 ### New

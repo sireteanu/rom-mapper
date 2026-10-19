@@ -1,4 +1,4 @@
-"""The RomM section: download folders, platform links, overlaps, exclude, config.yml."""
+"""The RomM section: download folders, platforms by folder name, categories, exclude, config.yml."""
 import json
 import os
 
@@ -35,70 +35,17 @@ def test_platforms_from_lolroms_rules_and_romm_style_names(env):
     assert r["lolroms/Nintendo/Super Famicom"]["files"] == 1, ".part files aren't counted"
 
 
-def test_overlaps_first_folder_wins_and_order_can_change(env):
-    server, c, d, lol, rom = setup(env)
-    assert sorted(x["slug"] for x in d["conflicts"]) == ["psx", "snes"]
-    assert rows(d)["collection/snes"]["conflict"] == "lolroms"
-    assert d["links"]["targets"]["snes"] == "lolroms/Nintendo/Super Famicom"
-    assert any("more than one download folder" in w for w in d["warnings"])
-    d = c.put("/api/romm/options", json={"sources": [rom, lol]}).get_json()
-    assert d["links"]["targets"]["snes"] == "collection/snes"
-    assert rows(d)["lolroms/Nintendo/Super Famicom"]["conflict"] == "collection"
-
-
 def test_excluding_a_folder_leaves_everything_inside_it_out(env):
     server, c, d, lol, rom = setup(env)
     d = c.put("/api/romm/map", json={"path": "lolroms/Nintendo", "action": "exclude"}).get_json()
     r = rows(d)
     assert r["lolroms/Nintendo/Super Famicom"]["kind"] == "skip"
     assert r["lolroms/Nintendo/Super Famicom"]["excluded_by"] == "lolroms/Nintendo"
-    assert d["links"]["targets"]["snes"] == "collection/snes"           # no overlap any more
-    assert not any(x["slug"] == "snes" for x in d["conflicts"])
     d = c.put("/api/romm/map", json={"path": "lolroms/Nintendo/GameCube", "action": "ngc"}).get_json()
-    assert d["links"]["targets"]["ngc"] == "lolroms/Nintendo/GameCube", "your own choice beats the excluded parent"
+    r = rows(d)
+    assert r["lolroms/Nintendo/GameCube"]["value"] == "ngc", "your own choice beats the excluded parent"
+    assert "excluded_by" not in r["lolroms/Nintendo/GameCube"]
     assert c.put("/api/romm/map", json={"path": "x", "action": "Not A Slug"}).status_code == 400
-
-
-def test_links_are_relative_kept_with_scans_and_never_touch_other_things(env):
-    server, c, d, lol, rom = setup(env)
-    roms = env.path("roms")
-    os.makedirs(os.path.join(roms, "gb"))                              # a real folder with that name
-    os.symlink("/somewhere/else", os.path.join(roms, "psx"))          # someone else's link
-    make_dirs(lol, "Nintendo/Game Boy")
-    d = c.post("/api/romm/links").get_json()
-    assert d["options"]["keep_links"] is True
-    assert os.readlink(os.path.join(roms, "snes")) == "lolroms/Nintendo/Super Famicom"
-    assert os.readlink(os.path.join(roms, "n64")) == "collection/n64"
-    assert os.readlink(os.path.join(roms, "psx")) == "/somewhere/else"
-    assert os.path.isdir(os.path.join(roms, "gb")) and not os.path.islink(os.path.join(roms, "gb"))
-    assert d["applied"]["skipped"]
-    # a choice changes: the scheduled refresh updates the links
-    c.put("/api/romm/map", json={"path": "collection/n64", "action": "exclude"})
-    res, text = server.romm_apply_links("scheduled")
-    assert res["removed"] == ["n64"] and not os.path.lexists(os.path.join(roms, "n64"))
-
-
-def test_config_yml_and_compose_line(env):
-    server, c, d, lol, rom = setup(env)
-    y = d["outputs"]["config"]
-    assert 'platforms:\n    - "collection"\n    - "lolroms"' in y
-    assert '"Satellaview"' in y and '"snes":' in y
-    links = env.path("roms")
-    assert f'"{links}:/romm/library/roms"' in d["outputs"]["compose"], "the real links folder"
-    assert f"ROMM_ROMS={links}" in d["outputs"]["compose"], "and the ENV-file way"
-    d = c.put("/api/romm/options", json={"romm_folder": "/romm/data/roms/lolroms"}).get_json()
-    assert f'"{links}:/romm/data/roms"' in d["outputs"]["compose"]
-
-
-def test_config_yml_excludes_other_folders_in_the_links_folder(env):
-    """The links folder is RomM's roms folder: any other real folder there would become a platform."""
-    server, c, d, lol, rom = setup(env)
-    make_dirs(env.path("roms"), "sets/mapping", ".hidden")
-    c.post("/api/romm/links")                                  # platform links appear next to them
-    y = c.get("/api/romm").get_json()["outputs"]["config"]
-    head = y.split("roms:")[0]
-    assert '- "sets"' in head, "a real folder is excluded as a platform"
-    assert '- ".hidden"' not in head and '- "snes"' not in head, "dot-folders and our links are not"
 
 
 def test_problems_are_explained(env):
@@ -107,27 +54,9 @@ def test_problems_are_explained(env):
     d = c.put("/api/romm/options", json={"sources": [env.path("nope")]}).get_json()
     assert "Folder not found" in d["error"]
     make_dirs(env.path("a"), "x")
-    make_dirs(env.path("b"), "y")
-    d = c.put("/api/romm/options", json={"sources": [env.path("a"), env.path("b")],
-                                         "links_dir": env.path("a")}).get_json()
-    assert "not inside the links folder" in d["error"]
+    d = c.put("/api/romm/options", json={"sources": [env.path("a"), env.path("a", "x")]}).get_json()
+    assert "is inside" in d["error"]
     assert c.put("/api/romm/options", json={"sources": ["relative"]}).status_code == 400
-
-
-def test_links_folder_outside_the_mounted_folders_is_refused_in_docker(env, monkeypatch):
-    """A second mount for RomM pointed at the download folder itself: the links folder (its parent)
-    is then on the container's own disk, where links would be lost."""
-    server, c, d, lol, rom = setup(env)
-    assert c.get("/api/romm").get_json()["error"] is None
-    monkeypatch.setattr(server, "IN_DOCKER", True)
-    mounted = {lol, rom}                        # only the download folders themselves
-    monkeypatch.setattr(server.os.path, "ismount", lambda p: p in mounted or os.path.dirname(p) == p)
-    d = c.get("/api/romm?fresh=1").get_json()
-    assert d["links_dir"] == env.path("roms")
-    assert "not inside a folder mounted into the container" in d["error"]
-    assert c.post("/api/romm/links").status_code == 400, "no links are made"
-    mounted.add(env.path("roms"))               # the folder that holds the download folders
-    assert c.get("/api/romm?fresh=1").get_json()["error"] is None
 
 
 def test_settings_file_is_written_safely(env):
@@ -260,6 +189,7 @@ def test_folders_named_to_skip_are_not_read(env):
 def test_never_read_setting_in_the_romm_tab(env):
     server, c, d, lol, rom = setup(env)
     make_dirs(rom, "snes/media/box2d", "psx/Extras")
+    c.put("/api/romm/options", json={"sources": [rom]})         # RomM reads this one
     d = c.get("/api/romm?fresh=1").get_json()
     assert d["options"]["skip_names"] == ["media"], "media is skipped by default"
     paths = set(rows(d))
@@ -329,8 +259,7 @@ def test_excluded_folders_are_not_read_inside(env, monkeypatch):
 
 
 def test_the_page_never_waits_on_the_disk(env, monkeypatch):
-    """With background reads on, even the quick re-check after 30 s runs in the background, and
-    the scheduler's link update reuses the list the background read made."""
+    """With background reads on, even the quick re-check after 30 s runs in the background."""
     server, c, d, lol, rom = setup(env)
     monkeypatch.setattr(server, "ROMM_BACKGROUND", True)
     c.get("/api/romm")
@@ -341,13 +270,6 @@ def test_the_page_never_waits_on_the_disk(env, monkeypatch):
             break
         server.time.sleep(0.05)
     assert "rows" in c.get("/api/romm").get_json(), "then the list comes straight from memory"
-    reads = []
-    real = server.romm.folders_from_roots
-    monkeypatch.setattr(server.romm, "folders_from_roots", lambda *a, **k: (reads.append(1), real(*a, **k))[1])
-    server.romm_apply_links("scheduled", reuse=True)
-    assert reads == [], "the scheduled update uses the list the background read made"
-    server.romm_apply_links("manual")
-    assert reads == [1], "the button re-checks the folders first"
 
 
 def test_big_answers_are_compressed(env):
@@ -361,53 +283,90 @@ def test_big_answers_are_compressed(env):
     assert len(zipped.data) < len(plain.data) / 3
 
 
-def names_setup(env):
-    """A RomM-style collection with one folder per system, mapped in RomM folder names mode."""
+def collection(env):
+    """A RomM-style collection: one folder per system, some named like a RomM platform."""
     rom = env.path("roms", "collection")
-    make_dirs(rom, "snes", "snes/media/box2d", "amigacdtv", "psx/Game A", "junk", "exodos/eXo/G1")
+    make_dirs(rom, "snes", "snes/media/box2d", "amigacdtv", "psx/Game A", "junk", "exodos/eXo/G1",
+              "atari2600", "atari2600/Homebrew", "atari2600/Hacks", "sfc", "dc/BIOS")
     server, c = env.start()
-    d = c.put("/api/romm/options", json={"sources": [rom]}).get_json()
-    assert d["options"]["mode"] == "links", "older settings (no mode) keep the links"
+    c.put("/api/romm/options", json={"sources": [rom]})
     c.put("/api/romm/map", json={"path": "collection/amigacdtv", "action": "commodore-cdtv"})
     c.put("/api/romm/map", json={"path": "collection/exodos", "action": "exclude"})
+    c.put("/api/romm/map", json={"path": "collection/dc", "action": "dc"})
     return server, c, rom
 
 
-def test_romm_folder_names_mode(env):
-    server, c, rom = names_setup(env)
-    d = c.put("/api/romm/options", json={"mode": "names"}).get_json()
-    assert d["options"]["mode"] == "names"
+def test_config_yml_names_folders_and_leaves_out_the_rest(env):
+    server, c, rom = collection(env)
+    d = c.get("/api/romm").get_json()
+    assert "compose" not in d["outputs"], "RomM's compose line is yours to write"
     y = d["outputs"]["config"]
-    system, exclude = y.split("exclude:")
+    system, rest = y.split("exclude:")
     assert '"amigacdtv": "commodore-cdtv"' in system, "a renamed folder is bound to its platform"
     assert '"snes"' not in system and '"psx"' not in system, "folders named like a platform need nothing"
-    left_out = exclude.split("roms:")[0]
+    left_out = rest.split("roms:")[0]
     assert '- "junk"' in left_out and '- "exodos"' in left_out, "no platform or excluded: left out"
-    assert '"snes"' not in left_out and '"psx"' not in left_out, "psx's games are all in subfolders - still in"
-    assert '- "media"' in exclude.split("roms:")[1], "never-read names are ignored by RomM too"
-    assert "filesystem:" not in y, "RomM's own folder layout"
-    assert f'"{rom}:/romm/library/roms"' in d["outputs"]["compose"]
-    assert d["links"]["targets"] == {}, "no links"
+    assert '"psx"' not in left_out, "psx's games are all in subfolders - it still counts"
+    games = rest.split("roms:")[1]
+    assert '- "media"' in games, "never-read names are ignored by RomM too"
+    assert '- "BIOS"' in games, "a firmware folder inside a system isn't read as a game"
+    assert "filesystem:" not in y, "no categories chosen: RomM's own layout"
     r = rows(d)
     assert r["collection/amigacdtv"]["value"] == "commodore-cdtv" and r["collection/amigacdtv"]["used"]
-    assert c.put("/api/romm/options", json={"mode": "folders"}).status_code == 400
+    assert r["collection/amigacdtv"]["top"] and not r.get("collection/snes/media/box2d")
+    assert d["links"] == {"roots": ["collection"]} and d["old_links"] == 0
 
 
-def test_switching_to_folder_names_removes_old_links(env):
-    server, c, rom = names_setup(env)
-    links = env.path("roms")
-    c.post("/api/romm/links")
-    assert os.readlink(os.path.join(links, "commodore-cdtv")) == "collection/amigacdtv"
-    c.put("/api/romm/options", json={"mode": "names"})
-    d = c.post("/api/romm/links").get_json()
-    assert "commodore-cdtv" in d["applied"]["removed"] and not os.path.lexists(os.path.join(links, "commodore-cdtv"))
-    assert os.path.isdir(os.path.join(rom, "amigacdtv")), "the folders themselves are untouched"
+def test_subfolders_as_categories(env):
+    """atari2600/Homebrew and atari2600/Hacks are categories: both templates, keyed by the folder."""
+    server, c, rom = collection(env)
+    d = c.put("/api/romm/map", json={"path": "collection/atari2600", "action": "cat:atari2600"}).get_json()
+    assert rows(d)["collection/atari2600"]["value"] == "cat:atari2600"
+    y = d["outputs"]["config"]
+    fs = y.split("filesystem:")[1]
+    assert "default: 'roms/{platform}/{game}'" in fs and "firmware: 'bios/{platform}'" in fs
+    assert '"atari2600":\n      - \'roms/{platform}/{game}\'\n      - \'roms/{platform}/{category}/{game}\'' in fs
+    # a renamed folder is keyed by its folder name - RomM looks templates up by folder
+    d = c.put("/api/romm/map", json={"path": "collection/amigacdtv", "action": "cat:commodore-cdtv"}).get_json()
+    fs = d["outputs"]["config"].split("filesystem:")[1]
+    assert '"amigacdtv":' in fs and '"commodore-cdtv":' not in fs
+    assert '"amigacdtv": "commodore-cdtv"' in d["outputs"]["config"], "and still renamed"
+    # back to plain games
+    d = c.put("/api/romm/map", json={"path": "collection/atari2600", "action": ""}).get_json()
+    assert rows(d)["collection/atari2600"]["value"] == "atari2600"
+    assert c.put("/api/romm/map", json={"path": "collection/atari2600", "action": "cat:Not Valid"}).status_code == 400
 
 
-def test_folder_names_mode_explains_nested_platforms(env):
-    """lolroms' platforms are nested (Nintendo/Super Famicom): RomM can't read those by name."""
+def test_two_folders_with_one_platform_keep_the_first(env):
+    server, c, rom = collection(env)
+    d = c.put("/api/romm/map", json={"path": "collection/sfc", "action": "snes"}).get_json()
+    r = rows(d)
+    assert r["collection/sfc"]["conflict"] == "collection/snes"
+    assert '- "sfc"' in d["outputs"]["config"].split("exclude:")[1]
+    assert any("both set to snes" in w for w in d["warnings"])
+
+
+def test_nested_platforms_and_more_download_folders_are_explained(env):
+    """RomM reads one folder by name: lolroms' nested platforms can't be platforms there."""
     server, c, d, lol, rom = setup(env)
-    d = c.put("/api/romm/options", json={"sources": [lol], "mode": "names"}).get_json()
     r = rows(d)
     assert "directly inside" in r["lolroms/Nintendo/Super Famicom"]["note"]
-    assert any("platform links for nested folders" in w for w in d["warnings"])
+    assert any("only the first download folder" in w for w in d["warnings"])
+    assert any("deeper folders have a platform" in w for w in d["warnings"])
+    assert not any(row["root"] == "collection" and row["used"] for row in d["rows"]), "the second one is not read by RomM"
+
+
+def test_old_platform_links_are_removed_and_nothing_else(env):
+    """Older versions made platform links next to the download folder; the button removes only those."""
+    server, c, rom = collection(env)
+    links = env.path("roms")
+    os.symlink("collection/snes", os.path.join(links, "snes"))            # one of ours
+    os.symlink("collection/amigacdtv", os.path.join(links, "commodore-cdtv"))
+    os.symlink("/somewhere/else", os.path.join(links, "psx"))              # someone else's
+    os.makedirs(os.path.join(links, "gb"))                                 # a real folder
+    d = c.get("/api/romm").get_json()
+    assert d["old_links"] == 2
+    d = c.post("/api/romm/links").get_json()
+    assert sorted(d["applied"]["removed"]) == ["commodore-cdtv", "snes"] and d["old_links"] == 0
+    assert os.readlink(os.path.join(links, "psx")) == "/somewhere/else"
+    assert os.path.isdir(os.path.join(links, "gb")) and os.path.isdir(os.path.join(rom, "amigacdtv"))
