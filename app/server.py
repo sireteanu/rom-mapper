@@ -583,7 +583,8 @@ def romm_setup(saved):
     links_dir = romm_links_dir(saved, sources)
     stored = saved.get("depths") or {}
     depths = {p: int(stored[p]) for p in sources if int(stored.get(p) or 0)}
-    return sources, links_dir, depths, (tuple(sources), links_dir, tuple(sorted(depths.items())))
+    skip = tuple(romm.options_from({"romm": saved})["skip_names"])
+    return sources, links_dir, depths, skip, (tuple(sources), links_dir, tuple(sorted(depths.items())), skip)
 
 
 def romm_mapping(fresh=False, progress=None):
@@ -592,7 +593,7 @@ def romm_mapping(fresh=False, progress=None):
     folders) or an hour since the last full read lists every folder again - on some shares (e.g.
     Unraid's, spread over several disks) a folder's date doesn't always change."""
     saved = romm_saved()
-    sources, links_dir, depths, key = romm_setup(saved)
+    sources, links_dir, depths, skip, key = romm_setup(saved)
     error = romm_check(sources, links_dir)
     if error:
         return None, saved, error
@@ -601,8 +602,8 @@ def romm_mapping(fresh=False, progress=None):
         now = time.time()
         full = fresh or c["key"] != key or now - c.get("full_at", 0) > FULL_READ_EVERY
         if full or now - c["at"] > 30:
-            c.update(key=key, at=now, folders=romm.folders_from_roots(links_dir, sources, full=full,
-                                                                      depths=depths, progress=progress))
+            c.update(key=key, at=now, folders=romm.folders_from_roots(links_dir, sources, full=full, depths=depths,
+                                                                      progress=progress, skip=skip))
             if full:
                 c["full_at"] = now
         folders, roots = c["folders"]
@@ -611,7 +612,7 @@ def romm_mapping(fresh=False, progress=None):
 
 def romm_full_read_due(saved, fresh=False):
     """Would romm_mapping read every folder again (slow on a big share)?"""
-    sources, links_dir, _depths, key = romm_setup(saved)
+    sources, links_dir, _depths, _skip, key = romm_setup(saved)
     if romm_check(sources, links_dir):
         return False
     c = _romm_cache
@@ -648,13 +649,35 @@ def start_romm_read(fresh=True):
     return True
 
 
+def romm_groups(m, rows):
+    """Folders inside a download folder that hold no files themselves but have rows below them
+    (exodos/eXo/eXoDOS): the page shows them as the tree's branches, and a choice on one (exclude)
+    covers everything inside it."""
+    have = {r["path"] for r in rows}
+    out = {}
+    for r in rows:
+        p = r["path"]
+        while "/" in p:
+            p = p.rsplit("/", 1)[0]
+            if p in have or p in out:
+                break
+            res = m.res.get(p)
+            root = m.root_of(p)
+            if res is None or root is None or root == p:
+                break
+            out[p] = {"path": p, "group": True, "files": 0, "kind": res["kind"], "slug": res["slug"],
+                      "value": m.choice(res), "auto": m.choice(m.auto.get(p, res)), "root": root,
+                      "action": m.user.get(p, ""), "excluded_by": res.get("excluded_by")}
+    return sorted(out.values(), key=lambda g: g["path"].casefold())
+
+
 def romm_view(fresh=False):
     saved = romm_saved()
     opt = romm.options_from({"romm": saved})
     sources = saved.get("sources") or []
     base = {"sources": sources, "depths": romm_setup(saved)[2], "error": None,
             "links_dir": romm_links_dir(saved, sources),
-            "options": {**{k: opt[k] for k in ("variants", "layout", "links_dir", "keep_links")},
+            "options": {**{k: opt[k] for k in ("variants", "layout", "links_dir", "keep_links", "skip_names")},
                         "romm_folder": romm.Mapping({"": (0, 0)}, opt).romm_folder()}}
     if ROMM_BACKGROUND and (romm_job_lock.locked() or romm_full_read_due(saved, fresh)):
         start_romm_read(fresh=True)
@@ -664,10 +687,11 @@ def romm_view(fresh=False):
     if m is None:
         return {**base, "rows": [], "platforms": [], "firmware": [], "warnings": [], "summary":
                 {"platforms": 0, "firmware": 0, "files": 0}, "links": {}, "outputs": {"compose": "", "config": ""}}
+    rows = m.rows()
     return {**base,
             "links": {"dir": m.links_dir, "roots": m.roots, "targets": m.link_targets()},
             "conflicts": m.conflicts,
-            "rows": m.rows(), "platforms": m.platforms, "firmware": m.firmware,
+            "rows": rows, "groups": romm_groups(m, rows), "platforms": m.platforms, "firmware": m.firmware,
             "warnings": m.warnings(), "summary": m.summary(),
             "outputs": {"compose": m.compose(), "config": m.config_yml()}}
 
@@ -851,6 +875,19 @@ def api_romm_options():
                 if n:
                     depths[str(k).strip().rstrip("/")] = n
             cur["depths"] = depths
+        if "skip_names" in body:
+            raw = body["skip_names"]
+            items = raw.split(",") if isinstance(raw, str) else list(raw or [])
+            names = []
+            for n in items:
+                n = str(n or "").strip()
+                if not n:
+                    continue
+                if "/" in n or "\\" in n:
+                    return jsonify({"error": f"{n}: give folder names (like media), not paths."}), 400
+                if n.casefold() not in {x.casefold() for x in names}:
+                    names.append(n)
+            cur["skip_names"] = names
         if cur.get("depths"):                 # only folders still in the list
             cur["depths"] = {k: v for k, v in cur["depths"].items() if k in (cur.get("sources") or [])}
         for k in ("variants", "keep_links"):
@@ -859,7 +896,7 @@ def api_romm_options():
         if body.get("layout") in ("category", "folders"):
             cur["layout"] = body["layout"]
         romm_save(cur)
-    return jsonify(romm_view(fresh="sources" in body or "depths" in body))
+    return jsonify(romm_view(fresh=any(k in body for k in ("sources", "depths", "skip_names"))))
 
 
 @app.put("/api/romm/map")

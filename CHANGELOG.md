@@ -5,6 +5,23 @@ release. Newest first.
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-10-19
+
+### New
+- **Never read folders named …** (RomM tab). List folder names to skip in every download folder -
+  `media` is there by default, and `*` / `?` work (`*.bak`). They aren't read or listed, and the
+  generated `config.yml` tells RomM to ignore them too.
+
+### Improved
+- **The RomM folder list is a tree.** Each folder's subfolders are tucked under it (click ▸ to open
+  it, with a count of what's inside) instead of tens of thousands of rows in one list. Download
+  folders start open, everything else closed, and the page remembers what you opened.
+- **Find a folder** on the RomM tab: type part of a path to list every matching folder.
+- Very long lists draw the first 600 rows and say how many there are, so the page stays quick.
+
+### Changed
+- Folders named `media` are no longer read for RomM unless you remove `media` from the list.
+
 ## [1.0.3] - 2026-10-19
 
 ### New

@@ -224,3 +224,54 @@ def test_folders_are_read_in_the_background_with_progress(env, monkeypatch):
         server.time.sleep(0.05)
     d = c.get("/api/romm").get_json()
     assert "reading" not in d and d["rows"] and d["sources"] == [rom, lol]
+
+
+def test_folders_named_to_skip_are_not_read(env):
+    col = env.path("roms", "collection")
+    make_dirs(col, "snes", "snes/media/box2d", "snes/Media", "psx/Extras", "psx/Game.bak")
+    romm = env.start()[0].romm
+    every = romm.folders_from_disk(col)
+    assert "snes/media/box2d" in every and "psx/Extras" in every
+    listed = []
+    real = romm.os.scandir
+    romm.os.scandir = lambda p: (listed.append(p), real(p))[1]
+    try:
+        some = romm.folders_from_disk(col, skip=("media", "Extras", "*.BAK"))
+    finally:
+        romm.os.scandir = real
+    assert set(some) == {"", "snes", "psx"}, "media/Media, Extras and *.bak are left out (any case)"
+    assert not any("media" in p.lower() or "Extras" in p for p in listed), "and never read"
+    assert romm.folders_from_disk(col, full=False) == every, "the cache keeps the two apart"
+
+
+def test_never_read_setting_in_the_romm_tab(env):
+    server, c, d, lol, rom = setup(env)
+    make_dirs(rom, "snes/media/box2d", "psx/Extras")
+    d = c.get("/api/romm?fresh=1").get_json()
+    assert d["options"]["skip_names"] == ["media"], "media is skipped by default"
+    paths = set(rows(d))
+    assert "collection/snes/media/box2d" not in paths and "collection/psx/Extras" in paths
+    assert '- "media"' in d["outputs"]["config"], "RomM is told to ignore it too"
+    d = c.put("/api/romm/options", json={"skip_names": "media, Extras, extras"}).get_json()
+    assert d["options"]["skip_names"] == ["media", "Extras"]
+    assert "collection/psx/Extras" not in set(rows(d))
+    assert json.loads(env.read_config("romm-mapper.json"))["skip_names"] == ["media", "Extras"]
+    assert c.put("/api/romm/options", json={"skip_names": "roms/media"}).status_code == 400
+    d = c.put("/api/romm/options", json={"skip_names": ""}).get_json()
+    assert d["options"]["skip_names"] == [] and "collection/snes/media/box2d" in set(rows(d)), "nothing skipped"
+
+
+def test_folders_without_files_are_sent_as_groups_and_can_be_excluded(env):
+    """exodos/eXo/eXoDOS hold only folders: the page gets them as groups to build its tree, and
+    excluding one leaves out everything inside it."""
+    server, c, d, lol, rom = setup(env)
+    make_dirs(rom, "exodos/eXo/eXoDOS/Game A", "exodos/eXo/eXoDOS/Game B")
+    d = c.get("/api/romm?fresh=1").get_json()
+    groups = {g["path"]: g for g in d["groups"]}
+    assert {"collection/exodos", "collection/exodos/eXo", "collection/exodos/eXo/eXoDOS"} <= set(groups)
+    assert not set(groups) & set(rows(d)), "a folder is a row or a group, not both"
+    assert "collection" not in groups, "download folders are rows"
+    d = c.put("/api/romm/map", json={"path": "collection/exodos", "action": "exclude"}).get_json()
+    r = rows(d)
+    assert r["collection/exodos/eXo/eXoDOS/Game A"]["excluded_by"] == "collection/exodos"
+    assert r["collection/exodos"]["value"] == "exclude", "with a choice of its own it becomes a row"

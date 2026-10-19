@@ -182,6 +182,13 @@
   @media (prefers-reduced-motion: reduce) { .romm .progress .pfill { transition: none; } .romm .progress .pbar.wait .pfill { animation: none; } }
   .romm .srcadd input { flex: 1; }
   .romm tr.root td { font-weight: 600; background: var(--bg); }
+  .romm td.p .tw { border: 0; background: none; padding: 0 4px 0 0; width: 18px; color: var(--muted); font: inherit; cursor: pointer; }
+  .romm td.p .tw:hover { color: var(--accent); }
+  .romm td.p .tw.none { visibility: hidden; cursor: default; }
+  .romm td.p .kids { color: var(--muted); font-family: system-ui, sans-serif; font-size: 11.5px; margin-left: 6px; }
+  .romm #rFind { min-width: 180px; flex: 0 1 260px; }
+  .romm tr.more td { color: var(--muted); font-size: 12.5px; text-align: center; }
+  .romm tr.group td.p { color: var(--muted); }
   .romm tr.conflict td.p { color: var(--warn); }
   @media (max-width: 900px) { .romm .grid2, .romm .two { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 900px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -296,10 +303,15 @@
       </select></label>
   </div>
   <label class="check"><input type="checkbox" id="rVar"> Include subfolders such as T-En, hacks and add-ons in their platform</label>
+  <label class="field"><span>Never read folders named</span>
+    <input type="text" id="rSkip" placeholder="media, Extras">
+    <small>Comma-separated folder names; <code>*</code> and <code>?</code> work (<code>*.bak</code>), case doesn't matter.
+      These folders are skipped in every download folder - not read, not listed - and RomM is told to ignore them too.</small></label>
   <ul id="rWarn" class="warnings"></ul>
   <div class="grid2">
     <section>
       <div class="bar"><h3 id="rCount">Folders</h3>
+        <input type="search" id="rFind" placeholder="Find a folder…" aria-label="Find a folder">
         <select id="rFilter" aria-label="Show"></select>
         </div>
       <div class="wrap"><table><thead><tr><th>Folder</th><th title="Files directly in the folder. For a download folder set to fewer levels, the folders on its last level also count their subfolders.">Files</th><th>RomM platform</th><th>Result</th></tr></thead>
@@ -765,6 +777,11 @@ $("srcSave").onclick = async () => {
     return ["no platform", "bad"];
   }
   let show = "all";
+  // folders whose open/closed state differs from the default (download folders open, others closed)
+  let toggled = new Set();
+  try { toggled = new Set(JSON.parse(localStorage.getItem("rommToggled") || "[]")); } catch (e) {}
+  const keepToggled = () => { try { localStorage.setItem("rommToggled", JSON.stringify([...toggled])); } catch (e) {} };
+  const MAX_ROWS = 600;            // rows drawn at once (search results / a huge open folder)
   function renderSources() {
     const box = $("rSources"); box.innerHTML = "";
     const roots = (R.links && R.links.roots) || [];
@@ -815,15 +832,72 @@ $("srcSave").onclick = async () => {
     const body = $("rBody"), wrap = body.closest(".wrap"), scroll = wrap.scrollTop;
     body.innerHTML = "";
     const roots = new Set((d.links && d.links.roots) || []);
-    for (const r of d.rows) {
-      if (show === "overlap" && !overlap.has(r.path)) continue;
-      if (show.startsWith("root:") && r.root !== show.slice(5)) continue;
+    // the tree, from the real folders: the rows plus "groups" (folders without files of their own
+    // but with rows below them, like exodos/eXo/eXoDOS); a chain of single groups is one line
+    const byPath = (a, b) => { const x = a.path.toLowerCase(), y = b.path.toLowerCase(); return x < y ? -1 : x > y ? 1 : 0; };
+    const nodes = [...d.rows, ...(d.groups || [])].sort(byPath);
+    const have = new Set(nodes.map(r => r.path)), up = {}, kids = new Map();
+    for (const r of nodes) {
+      let p = r.path, parent = "";
+      while (p.includes("/")) { p = p.slice(0, p.lastIndexOf("/")); if (have.has(p)) { parent = p; break; } }
+      up[r.path] = parent;
+      if (!kids.has(parent)) kids.set(parent, []);
+      kids.get(parent).push(r);
+    }
+    const below = {};                // number of rows (not groups) somewhere under a folder
+    const count = (path) => (kids.get(path) || []).reduce((n, k) => n + (k.group ? 0 : 1) + (below[k.path] ??= count(k.path)), 0);
+    const isOpen = (path) => roots.has(path) !== toggled.has(path);
+    const find = $("rFind").value.trim().toLowerCase();
+    const flat = !!find || show === "overlap";
+    let list = [];                    // [row, level, label]
+    if (flat) {
+      for (const r of nodes) {
+        if (show === "overlap" && !overlap.has(r.path)) continue;
+        if (show.startsWith("root:") && r.root !== show.slice(5)) continue;
+        if (find && !r.path.toLowerCase().includes(find)) continue;
+        list.push([r, 0, r.path]);
+      }
+    } else {
+      const walk = (parent, level) => {
+        for (let r of kids.get(parent) || []) {
+          if (show.startsWith("root:") && r.root !== show.slice(5) && r.path !== show.slice(5)) continue;
+          let label = parent ? r.path.slice(parent.length + 1) : r.path;
+          for (let only; r.group && (only = kids.get(r.path) || []).length === 1 && only[0].group; ) {
+            label += only[0].path.slice(r.path.length); r = only[0];
+          }
+          list.push([r, level, label]);
+          if (isOpen(r.path)) walk(r.path, level + 1);
+        }
+      };
+      walk("", 0);
+    }
+    const total = list.length;
+    list = list.slice(0, MAX_ROWS);
+    for (const [r, level, label] of list) {
       const tr = document.createElement("tr");
+      if (r.group) tr.className = "group";
       if (roots.has(r.path)) tr.className = "root";
       if (r.conflict) tr.className = "conflict";
       tr.innerHTML = `<td class="p"></td><td class="n"></td><td><select class="act"></select></td><td class="res"></td>`;
-      tr.children[0].textContent = r.path; tr.children[0].title = r.path;
-      tr.children[1].textContent = num(r.files);
+      const cell = tr.children[0], n = below[r.path] ?? (below[r.path] = count(r.path));
+      cell.title = r.path;
+      cell.style.paddingLeft = `${6 + level * 16}px`;
+      if (!flat) {
+        const tw = document.createElement("button");
+        tw.type = "button"; tw.className = "tw" + (n ? "" : " none");
+        tw.textContent = isOpen(r.path) ? "▾" : "▸";
+        if (n) {
+          tw.setAttribute("aria-expanded", String(isOpen(r.path)));
+          tw.setAttribute("aria-label", `${isOpen(r.path) ? "Close" : "Open"} ${r.path}`);
+          tw.onclick = () => { toggled.has(r.path) ? toggled.delete(r.path) : toggled.add(r.path); keepToggled(); render(); };
+        } else tw.tabIndex = -1;
+        cell.append(tw);
+      }
+      cell.append(document.createTextNode(label));
+      if (!flat && n && !isOpen(r.path)) {
+        const k = document.createElement("span"); k.className = "kids"; k.textContent = `${num(n)} inside`; cell.append(k);
+      }
+      tr.children[1].textContent = r.group ? "" : num(r.files);
       const sel = q(".act", tr);
       fill(sel, r, r.path in pending ? pending[r.path] : r.value, false);
       const full = () => { if (!sel.dataset.full) fill(sel, r, sel.value, true); };
@@ -831,11 +905,22 @@ $("srcSave").onclick = async () => {
       sel.setAttribute("aria-label", `RomM platform for ${r.path}`);
       sel.addEventListener("change", () => save(r.path, sel.value === r.auto || sel.value === "firmware" ? "" : sel.value, sel.value));
       let [text, cls] = result(r);
+      if (r.group) {                  // a folder that only holds other folders
+        [text, cls] = r.value === "exclude" ? ["left out of RomM, with everything inside", "none"]
+          : r.value ? [`${r.value} for the folders inside`, "ok"] : ["folder", "none"];
+      }
       if (r.conflict) { text = `not linked (${r.conflict} used)`; cls = "warn"; tr.children[3].title = `${r.slug} also comes from ${r.conflict}, which is higher in the list`; }
       else if (r.excluded_by) { text = `left out (in ${r.excluded_by})`; cls = "none"; }
       else if (roots.has(r.path) && r.kind === "unmapped") { text = "download folder"; cls = "none"; }
       else if (overlap.has(r.path)) text += " (used)";
       tr.children[3].textContent = text; tr.children[3].className = "res st-" + cls;
+      body.append(tr);
+    }
+    if (total > list.length) {
+      const tr = document.createElement("tr"); tr.className = "more";
+      tr.innerHTML = `<td colspan="4"></td>`;
+      tr.children[0].textContent = flat ? `Showing ${num(list.length)} of ${num(total)} folders - type more to narrow the search.`
+        : `Showing the first ${num(list.length)} of ${num(total)} open rows - close a folder or search to see the rest.`;
       body.append(tr);
     }
     if (!d.rows.length) body.innerHTML = `<tr><td colspan="4" class="hint">${d.error ? "" : "No folders with files yet."}</td></tr>`;
@@ -892,7 +977,7 @@ $("srcSave").onclick = async () => {
   }
   function setReading(on) {
     reading = on;
-    ["rSourceAdd", "rSourceNew", "rSourceDepth", "rRefresh", "rApply"].forEach(id => $(id).disabled = on || (id === "rApply" && !!(R && R.error)));
+    ["rSourceAdd", "rSourceNew", "rSourceDepth", "rRefresh", "rApply", "rSkip"].forEach(id => $(id).disabled = on || (id === "rApply" && !!(R && R.error)));
     document.querySelectorAll("#rSources button, #rSources select").forEach(b => b.disabled = on);
     if (!on) showProgress(null);
   }
@@ -930,6 +1015,7 @@ $("srcSave").onclick = async () => {
     $("rLayout").value = d.options.layout || "category";
     $("rKeep").checked = !!d.options.keep_links;
     $("rLinkDir").value = d.options.links_dir || "";
+    if (document.activeElement !== $("rSkip")) $("rSkip").value = (d.options.skip_names || []).join(", ");
     render();
   }
   async function save(path, action, shown) {
@@ -954,6 +1040,9 @@ $("srcSave").onclick = async () => {
   $("rSourceAdd").onclick = addSource;
   $("rSourceNew").addEventListener("keydown", (e) => { if (e.key === "Enter") addSource(); });
   $("rFilter").addEventListener("change", () => { show = $("rFilter").value; render(); });
+  let findTimer = null;
+  $("rFind").addEventListener("input", () => { clearTimeout(findTimer); findTimer = setTimeout(render, 150); });
+  $("rSkip").addEventListener("change", () => options({ skip_names: $("rSkip").value }));
   window.loadRomm = async () => {
     if (!R) $("rOut").textContent = "Loading…";
     try {
