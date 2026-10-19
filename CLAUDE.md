@@ -4,6 +4,9 @@ Web app that builds per-frontend folders of links into ROM folders, and maps dow
 RomM platforms. Flask + waitress, one page (`app/static/index.html`, no build step), Python 3.10+,
 Docker (Unraid). See README.md for the full reference.
 
+**Linux + Docker only.** Paths are POSIX (`/`, no drive letters, no `os.sep` juggling) and the code
+and tests create real symlinks - run the tests on Linux (CI: `.github/workflows/tests.yml`).
+
 ## Commands
 - Install (dev): `pip install -r requirements.txt -r requirements-dev.txt`
 - Tests: `python -m pytest` (temporary folders only); lint: `python -m pyflakes app tests`
@@ -27,8 +30,11 @@ Docker (Unraid). See README.md for the full reference.
   `tests/test_upgrades.py` (rows without labels, the minutes/hours schedule, one-folder and Rom
   Sync `romm-mapper.json`). There is no CSV import or export (removed in 1.0.3) - don't add one
   back without asking.
-- RomM full reads run in the background (`start_romm_read`, `/api/romm/progress`); `romm_view` answers
-  `{reading}` meanwhile. Tests set `server.ROMM_BACKGROUND = False` (conftest) to get rows directly.
+- RomM reads never block the page: any read `romm_view` needs (full, or the quick re-check after
+  30 s - `romm_read_due`) runs in the background (`start_romm_read`, `/api/romm/progress`) and the
+  answer is `{reading}` meanwhile. The scheduler reads in the background too, then updates the
+  links with `reuse=True`; the manual links button does a quick re-check (`quick=True`).
+  JSON answers over 4 KB are gzipped when the browser accepts it (`compress`). Tests set `server.ROMM_BACKGROUND = False` (conftest) to get rows directly.
   Per-download-folder levels are `depths` in `romm-mapper.json` (missing = all levels).
   The folder cache is never reset by saving: its key (`romm_setup`) covers what changes the folders;
   choices/options pass `reuse=True` (no disk access at all). Excluded folders without a choice below

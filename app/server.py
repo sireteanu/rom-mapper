@@ -9,6 +9,7 @@ platforms with relative platform links next to it plus a generated config.yml. S
 choices live in romm-mapper.json in the config folder - the same file Rom Sync used.
 """
 
+import gzip
 import hashlib
 import json
 import os
@@ -505,7 +506,7 @@ def romm_saved():
     if cur.get("links_dir") and not os.path.isabs(cur["links_dir"]):
         cur.pop("links_dir")
     if cur.get("map") and sources:
-        root = os.path.relpath(sources[0], romm_links_dir(cur, sources)).replace(os.sep, "/")
+        root = os.path.relpath(sources[0], romm_links_dir(cur, sources))
         cur["map"] = {(f"{root}/{k}" if k else root): v for k, v in cur["map"].items()}
     cur["sources"] = sources
     if cur.get("map") or old:
@@ -588,12 +589,13 @@ def romm_setup(saved):
     return sources, links_dir, depths, skip, (tuple(sources), links_dir, tuple(sorted(depths.items())), skip)
 
 
-def romm_mapping(fresh=False, progress=None, reuse=False):
+def romm_mapping(fresh=False, progress=None, reuse=False, quick=False):
     """-> (Mapping or None, saved settings, error). Folder counts are reused for 30 s; after that
     only folders whose date changed are listed again. fresh=True (Refresh button, new download
     folders) or an hour since the last full read lists every folder again - on some shares (e.g.
     Unraid's, spread over several disks) a folder's date doesn't always change. reuse=True (a
-    platform choice or an option: nothing on disk changed) takes the folder list as it is."""
+    platform choice or an option: nothing on disk changed) takes the folder list as it is; quick=True
+    re-checks the folders' dates now, however recent the last read (Create / update links now)."""
     saved = romm_saved()
     sources, links_dir, depths, skip, key = romm_setup(saved)
     error = romm_check(sources, links_dir)
@@ -604,7 +606,7 @@ def romm_mapping(fresh=False, progress=None, reuse=False):
         now = time.time()
         have = c["key"] == key and c.get("folders") is not None
         full = fresh or not have or (now - c.get("full_at", 0) > FULL_READ_EVERY and not reuse)
-        if full or (now - c["at"] > 30 and not reuse):
+        if full or quick or (now - c["at"] > 30 and not reuse):
             folders = romm.folders_from_roots(links_dir, sources, full=full, depths=depths, progress=progress,
                                               skip=skip, stop=romm_stops(saved))
             # stamped when the read ends: on a big share it takes minutes, and a stamp from its start
@@ -625,15 +627,19 @@ def romm_stops(saved):
     return {p for p in excluded if not any(k.startswith(p + "/") for k in choices)}
 
 
-def romm_full_read_due(saved, fresh=False, reuse=False):
-    """Would romm_mapping read every folder again (slow on a big share)?"""
+def romm_read_due(saved, fresh=False, reuse=False):
+    """Would romm_mapping touch the disk - a full read, or the quick re-check after 30 s? Either can
+    take a while on a big share (a stat per folder), so the page gets it in the background."""
     sources, links_dir, _depths, _skip, key = romm_setup(saved)
     if romm_check(sources, links_dir):
         return False
     c = _romm_cache
     if fresh or c["key"] != key or c.get("folders") is None:
         return True
-    return not reuse and time.time() - c.get("full_at", 0) > FULL_READ_EVERY
+    if reuse:
+        return False
+    now = time.time()
+    return now - c.get("full_at", 0) > FULL_READ_EVERY or now - c["at"] > 30
 
 
 def romm_progress():
@@ -696,8 +702,8 @@ def romm_view(fresh=False, reuse=False):
             "links_dir": romm_links_dir(saved, sources),
             "options": {**{k: opt[k] for k in ("variants", "layout", "links_dir", "keep_links", "skip_names")},
                         "romm_folder": romm.Mapping({"": (0, 0)}, opt).romm_folder()}}
-    if ROMM_BACKGROUND and (romm_job_lock.locked() or romm_full_read_due(saved, fresh, reuse)):
-        start_romm_read(fresh=True)
+    if ROMM_BACKGROUND and (romm_job_lock.locked() or romm_read_due(saved, fresh, reuse)):
+        start_romm_read(fresh=fresh)
         return {**base, "reading": romm_progress()}
     m, saved, error = romm_mapping(fresh, reuse=reuse)
     base["error"] = error
@@ -714,9 +720,11 @@ def romm_view(fresh=False, reuse=False):
             "outputs": {"compose": m.compose(), "config": m.config_yml()}}
 
 
-def romm_apply_links(trigger):
+def romm_apply_links(trigger, reuse=False):
+    """Make the platform links match. Manual: a quick read first (only folders whose date changed;
+    Refresh reads everything). The scheduler reads in the background first and passes reuse=True."""
     with romm_lock:
-        m, _saved, error = romm_mapping(fresh=True)
+        m, _saved, error = romm_mapping(reuse=reuse, quick=not reuse)
         if m is None:
             raise RuntimeError(error)
         res = romm.apply_links(m)
@@ -748,7 +756,12 @@ def scheduler_loop():
                 romm_settings = romm_saved()
                 if romm_settings.get("keep_links") and romm_settings.get("sources"):
                     try:
-                        romm_apply_links("scheduled")
+                        # read in the background (the page shows the progress and never waits on
+                        # the disk), then update the links from that list
+                        start_romm_read(fresh=False)
+                        while romm_job_lock.locked():
+                            time.sleep(2)
+                        romm_apply_links("scheduled", reuse=True)
                     except Exception as e:  # noqa: BLE001
                         log(f"RomM platform links not updated: {e}")
             if s["sync_enabled"] and now - last_sync >= interval_seconds(s, "sync"):
@@ -759,6 +772,19 @@ def scheduler_loop():
 
 
 # ---------------------------------------------------------------- routes
+
+@app.after_request
+def compress(resp):
+    """gzip large JSON answers when the browser accepts it: the RomM list of a big share is
+    several MB of JSON and shrinks to a fraction of that."""
+    if (resp.status_code == 200 and resp.mimetype == "application/json" and not resp.direct_passthrough
+            and "gzip" in request.headers.get("Accept-Encoding", "")
+            and "Content-Encoding" not in resp.headers and (resp.content_length or 0) > 4096):
+        resp.set_data(gzip.compress(resp.get_data(), compresslevel=5))
+        resp.headers["Content-Encoding"] = "gzip"
+        resp.headers.add("Vary", "Accept-Encoding")
+    return resp
+
 
 @app.get("/")
 def index():

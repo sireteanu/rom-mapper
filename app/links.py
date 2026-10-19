@@ -28,9 +28,9 @@ def check_dest(dest: str, source_paths) -> str | None:
         return f"Refusing to use the mapping folder {dest!r} - pick a dedicated folder."
     for s in source_paths:
         s = os.path.abspath(s)
-        if d == s or d.startswith(s + os.sep):
+        if d == s or d.startswith(s + "/"):
             return f"The mapping folder {dest} is inside the source folder {s} - pick another one."
-        if s.startswith(d + os.sep):
+        if s.startswith(d + "/"):
             return f"The source folder {s} is inside the mapping folder {dest} - pick another one."
     return None
 

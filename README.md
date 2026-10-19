@@ -5,8 +5,9 @@ and for [RomM](https://github.com/rommapp/romm) out of **links** into your ROM f
 copied or moved: each frontend gets its own folder of links, named the way that frontend expects,
 pointing at the one copy of your files.
 
-It runs as a small web app in Docker (made for Unraid) and keeps the links up to date on a
-schedule. The page has two tabs of equal standing: **Frontend links** (the mapping grid) and
+It runs as a small web app in Docker on Linux (made for Unraid) and keeps the links up to date on
+a schedule. **Linux and Docker only** - it relies on Linux paths and symlinks; Windows and macOS
+hosts aren't supported. The page has two tabs of equal standing: **Frontend links** (the mapping grid) and
 **RomM**. The open tab is kept in the address (`#links`, `#romm`) and remembered by the browser.
 
 - **New here?** Follow the [user guide](docs/user-guide.md).
@@ -110,7 +111,7 @@ produce links to `/roms/...`, which don't exist on the host.
 **Permissions:** the container user needs write access to the config folder, the mapping folder
 and (for RomM) the folder that holds the download folders.
 
-### Without Docker
+### Without Docker (Linux)
 
 ```bash
 pip install -r requirements.txt

@@ -18,6 +18,17 @@ release. Newest first.
 
 ### Improved
 - The result of a mapped folder reads "in RomM as roms/<platform>" instead of just the path.
+- **The page never waits on the disk any more.** The quick re-check of the RomM folders (after 30
+  seconds) runs in the background with the progress bar, like a full read.
+- **Scheduled link updates no longer read everything.** With "Update the links with every scan",
+  each scan used to read every RomM download folder in full; it now does the usual quick re-check
+  (and a full read once an hour) in the background, then updates the links.
+  **Create / update links now** also does a quick re-check instead of a full read (**Refresh**
+  still reads everything).
+- **Smaller answers**: big lists (like the RomM folders of a large share) are sent compressed.
+
+### Changed
+- **Linux and Docker only.** Windows and macOS hosts aren't supported any more.
 
 ## [1.0.6] - 2026-10-19
 

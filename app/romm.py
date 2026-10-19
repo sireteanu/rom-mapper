@@ -491,7 +491,7 @@ class Mapping:
     def romm_folder(self) -> str:
         """The "RomM folder" setting: where the lolroms downloads appear inside RomM's container
         (default /romm/library/roms/lolroms). Values not under /romm are older server paths."""
-        f = (self.opt.get("romm_folder") or "").strip().rstrip("/\\")
+        f = (self.opt.get("romm_folder") or "").strip().rstrip("/")
         return f if f.startswith("/romm/") else DEFAULT_ROMM_FOLDER
 
     def library(self) -> str:
@@ -502,7 +502,7 @@ class Mapping:
     def compose(self) -> str:
         """The one volume line RomM's compose file needs: the links folder as its roms folder. The
         links folder is mounted at the same path here as on the server, so it's the server path."""
-        host = self.base.replace(os.sep, "/") if self.base else "/path/on/your/server"
+        host = self.base or "/path/on/your/server"
         inside = self.library() + "/roms"
         return ("    volumes:\n"
                 "      # for the RomM service: replace its .../romm/library/roms line with the folder that\n"
@@ -592,8 +592,7 @@ def apply_links(m: "Mapping") -> dict:
     want = m.link_targets()
 
     def ours(target: str) -> bool:
-        t = target.replace(os.sep, "/")
-        return not os.path.isabs(t) and any(t == r or t.startswith(r + "/") for r in m.roots)
+        return not os.path.isabs(target) and any(target == r or target.startswith(r + "/") for r in m.roots)
 
     for name, target in sorted(want.items()):
         path = os.path.join(links_dir, name)
@@ -678,7 +677,7 @@ def folders_from_roots(links_dir: str, sources: list, full: bool = True, depths:
     roots = []
     depths = depths or {}
     for i, src in enumerate(sources):
-        root = os.path.relpath(os.path.abspath(src), os.path.abspath(links_dir)).replace(os.sep, "/")
+        root = os.path.relpath(os.path.abspath(src), os.path.abspath(links_dir))
         roots.append(root)
         parts = root.split("/")
         for j in range(1, len(parts)):

@@ -83,7 +83,7 @@ def test_config_yml_and_compose_line(env):
     y = d["outputs"]["config"]
     assert 'platforms:\n    - "collection"\n    - "lolroms"' in y
     assert '"Satellaview"' in y and '"snes":' in y
-    links = os.path.abspath(env.path("roms")).replace(os.sep, "/")
+    links = env.path("roms")
     assert f'"{links}:/romm/library/roms"' in d["outputs"]["compose"], "the real links folder"
     assert f"ROMM_ROMS={links}" in d["outputs"]["compose"], "and the ENV-file way"
     d = c.put("/api/romm/options", json={"romm_folder": "/romm/data/roms/lolroms"}).get_json()
@@ -315,7 +315,7 @@ def test_excluded_folders_are_not_read_inside(env, monkeypatch):
     c.put("/api/romm/map", json={"path": "collection/exodos", "action": "exclude"})
     listed = []
     real = server.romm.os.scandir
-    monkeypatch.setattr(server.romm.os, "scandir", lambda p: (listed.append(p.replace("\\", "/")), real(p))[1])
+    monkeypatch.setattr(server.romm.os, "scandir", lambda p: (listed.append(p), real(p))[1])
     d = c.get("/api/romm?fresh=1").get_json()
     r = rows(d)
     assert r["collection/exodos"]["value"] == "exclude"
@@ -326,3 +326,36 @@ def test_excluded_folders_are_not_read_inside(env, monkeypatch):
     r = rows(c.get("/api/romm?fresh=1").get_json())
     assert r["collection/exodos/keep"]["value"] == "psx"
     assert r["collection/exodos/eXo/!dos/Game B"]["value"] == "exclude", "read again, and still left out"
+
+
+def test_the_page_never_waits_on_the_disk(env, monkeypatch):
+    """With background reads on, even the quick re-check after 30 s runs in the background, and
+    the scheduler's link update reuses the list the background read made."""
+    server, c, d, lol, rom = setup(env)
+    monkeypatch.setattr(server, "ROMM_BACKGROUND", True)
+    c.get("/api/romm")
+    server._romm_cache["at"] -= 60                                    # the list is a minute old
+    assert c.get("/api/romm").get_json()["reading"], "the quick re-check runs in the background"
+    for _ in range(100):
+        if not c.get("/api/romm/progress").get_json()["running"]:
+            break
+        server.time.sleep(0.05)
+    assert "rows" in c.get("/api/romm").get_json(), "then the list comes straight from memory"
+    reads = []
+    real = server.romm.folders_from_roots
+    monkeypatch.setattr(server.romm, "folders_from_roots", lambda *a, **k: (reads.append(1), real(*a, **k))[1])
+    server.romm_apply_links("scheduled", reuse=True)
+    assert reads == [], "the scheduled update uses the list the background read made"
+    server.romm_apply_links("manual")
+    assert reads == [1], "the button re-checks the folders first"
+
+
+def test_big_answers_are_compressed(env):
+    import gzip
+    server, c = env.start()
+    plain = c.get("/api/romm/platforms")
+    zipped = c.get("/api/romm/platforms", headers={"Accept-Encoding": "gzip, deflate"})
+    assert "Content-Encoding" not in plain.headers
+    assert zipped.headers["Content-Encoding"] == "gzip" and "Accept-Encoding" in zipped.headers["Vary"]
+    assert json.loads(gzip.decompress(zipped.data)) == plain.get_json()
+    assert len(zipped.data) < len(plain.data) / 3
