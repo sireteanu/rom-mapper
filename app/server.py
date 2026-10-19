@@ -530,8 +530,9 @@ def romm_links_dir(saved, sources):
     return os.path.commonpath([os.path.dirname(os.path.abspath(p)) for p in sources])
 
 
-def romm_check(sources, links_dir):
-    """Problems that stop the RomM section from working, or None."""
+def romm_check(sources, links_dir, mode="links"):
+    """Problems that stop the RomM section from working, or None. In names mode no links are made,
+    so the links folder doesn't have to be on a host mount."""
     if not sources:
         return "Add a download folder first."
     for p in sources:
@@ -547,7 +548,7 @@ def romm_check(sources, links_dir):
     names = [os.path.relpath(p, links_dir) for p in sources]
     if len(set(names)) != len(names):
         return "The same folder is listed twice."
-    if IN_DOCKER and not on_host_folder(links_dir):
+    if mode == "links" and IN_DOCKER and not on_host_folder(links_dir):
         return (f"The links folder {links_dir} is not inside a folder mounted into the container, so the "
                 f"platform links would be lost. Mount the folder that holds the download folders (not the "
                 f"download folder itself) at the same path, or choose a links folder inside a mounted folder.")
@@ -598,7 +599,7 @@ def romm_mapping(fresh=False, progress=None, reuse=False, quick=False):
     re-checks the folders' dates now, however recent the last read (Create / update links now)."""
     saved = romm_saved()
     sources, links_dir, depths, skip, key = romm_setup(saved)
-    error = romm_check(sources, links_dir)
+    error = romm_check(sources, links_dir, romm.options_from({"romm": saved})["mode"])
     if error:
         return None, saved, error
     with romm_read_lock:
@@ -631,7 +632,7 @@ def romm_read_due(saved, fresh=False, reuse=False):
     """Would romm_mapping touch the disk - a full read, or the quick re-check after 30 s? Either can
     take a while on a big share (a stat per folder), so the page gets it in the background."""
     sources, links_dir, _depths, _skip, key = romm_setup(saved)
-    if romm_check(sources, links_dir):
+    if romm_check(sources, links_dir, romm.options_from({"romm": saved})["mode"]):
         return False
     c = _romm_cache
     if fresh or c["key"] != key or c.get("folders") is None:
@@ -700,7 +701,7 @@ def romm_view(fresh=False, reuse=False):
     sources = saved.get("sources") or []
     base = {"sources": sources, "depths": romm_setup(saved)[2], "error": None,
             "links_dir": romm_links_dir(saved, sources),
-            "options": {**{k: opt[k] for k in ("variants", "layout", "links_dir", "keep_links", "skip_names")},
+            "options": {**{k: opt[k] for k in ("variants", "layout", "links_dir", "keep_links", "skip_names", "mode")},
                         "romm_folder": romm.Mapping({"": (0, 0)}, opt).romm_folder()}}
     if ROMM_BACKGROUND and (romm_job_lock.locked() or romm_read_due(saved, fresh, reuse)):
         start_romm_read(fresh=fresh)
@@ -754,7 +755,8 @@ def scheduler_loop():
             if s["scan_enabled"] and now - last_scan >= interval_seconds(s, "scan"):
                 run_scan("scheduled")
                 romm_settings = romm_saved()
-                if romm_settings.get("keep_links") and romm_settings.get("sources"):
+                if (romm_settings.get("keep_links") and romm_settings.get("sources")
+                        and romm.options_from({"romm": romm_settings})["mode"] == "links"):
                     try:
                         # read in the background (the page shows the progress and never waits on
                         # the disk), then update the links from that list
@@ -939,6 +941,10 @@ def api_romm_options():
                 cur[k] = bool(body[k])
         if body.get("layout") in ("category", "folders"):
             cur["layout"] = body["layout"]
+        if "mode" in body:
+            if body["mode"] not in romm.MODES:
+                return jsonify({"error": "The mode must be links or names."}), 400
+            cur["mode"] = body["mode"]
         romm_save(cur)
     folders = any(k in body for k in ("sources", "depths", "skip_names", "links_dir"))
     return jsonify(romm_view(fresh=folders, reuse=not folders))
@@ -972,7 +978,7 @@ def api_romm_links():
         return jsonify({"error": str(e)}), 400
     with romm_lock:
         cur = romm_saved()
-        if not cur.get("keep_links") and not res["errors"]:
+        if not cur.get("keep_links") and not res["errors"] and romm.options_from({"romm": cur})["mode"] == "links":
             cur["keep_links"] = True          # from now on kept up to date with every scan
             romm_save(cur)
     return jsonify({**romm_view(reuse=True), "applied": {**res, "text": text}})

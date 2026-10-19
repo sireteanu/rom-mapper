@@ -5,6 +5,18 @@ release. Newest first.
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-10-19
+
+### New
+- **RomM folder names - RomM without links.** A new choice on the RomM tab, *How RomM sees your
+  folders*. With **RomM folder names**, RomM reads your download folder directly and the generated
+  `config.yml` renames folders to platforms (`system.platforms`, e.g. `amigacdtv: commodore-cdtv`)
+  and leaves out the folders without a platform (`exclude.platforms`). No links are made; the
+  compose line mounts the download folder itself. Made for one folder with one folder per system.
+  **Platform links** (as before) stays the default and is still needed for nested downloads
+  (lolroms) or several download folders. Switching to folder names turns the links button into
+  **Remove old platform links**.
+
 ## [1.0.7] - 2026-10-19
 
 ### Fixed

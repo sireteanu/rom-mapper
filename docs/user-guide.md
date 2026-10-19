@@ -91,6 +91,14 @@ if it's already due.
 
 Open the **RomM** tab (or go to `http://YOUR-SERVER:8085/#romm`).
 
+First choose **How RomM sees your folders**:
+
+- **RomM folder names** if you have one ROM folder with one folder per system (like `roms/snes`,
+  `roms/amigacdtv`). RomM reads that folder directly; folders whose name isn't a RomM platform are
+  renamed in RomM's `config.yml` (`amigacdtv: commodore-cdtv`). No links.
+- **Platform links** for nested download folders (lolroms' `Nintendo/Super Famicom`) or several
+  download folders.
+
 1. **Download folders** - add the folders RomM should see, in order of preference. The table lists
    every folder with files and the RomM platform it becomes. Most are filled in already.
    Reading a big folder takes a while: a progress bar shows how far it is.

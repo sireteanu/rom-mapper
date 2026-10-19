@@ -54,7 +54,12 @@ DEFAULT_OPTIONS = {
     "map": {},                    # your own actions: {lolroms path: action}
     "skip_names": ["media"],      # folders with these names (wildcards allowed) are never read or
                                   # listed, and RomM is told to ignore them too
+    "mode": "links",              # how RomM sees the folders: "links" = a platform link per platform
+                                  # next to the download folders; "names" = RomM reads the (one)
+                                  # download folder itself and config.yml renames its folders
+                                  # (system.platforms) - no links, for one folder per system
 }
+MODES = ("links", "names")
 
 
 def skipped(name: str, patterns) -> bool:
@@ -234,6 +239,10 @@ class Mapping:
         self.user = {k: v for k, v in (self.opt.get("map") or {}).items() if v}
         self.other_folders: list = []   # real folders in the links folder that aren't ours (see other_folders)
         self.res: dict = {}          # path -> dict(kind, slug, source)
+        self.names = self.opt.get("mode") == "names"
+        self.bindings: dict = {}     # names mode: {folder name: platform slug} for system.platforms
+        self.left_out: list = []     # names mode: folders directly inside that aren't platforms
+        self.deep: list = []         # names mode: deeper folders with a platform (can't be one here)
         self._resolve()
         self._group()
 
@@ -335,6 +344,9 @@ class Mapping:
 
     # ------------------------------------------------------------------ platforms
     def _group(self):
+        if self.names:
+            self._group_names()
+            return
         games, fw = {}, {}
         for path, r in self.res.items():
             if r["kind"] in (PLATFORM, MERGE) and self._uses(path):
@@ -391,6 +403,40 @@ class Mapping:
             self.firmware.append({"slug": slug, "mount": paths[0], "folders": paths[:1],
                                   "ignored": paths[1:]})
 
+    def _group_names(self):
+        """RomM folder names: RomM reads the download folder itself, so each folder directly inside
+        it is a platform under its own name - system.platforms binds the name to a slug when they
+        differ (amigacdtv -> commodore-cdtv). The other folders directly inside are excluded.
+        A platform folder counts if it or anything inside it has files (one folder per game)."""
+        self.conflicts, self.lost, self.firmware, self.platforms = [], {}, [], []
+        if not self.roots:
+            return
+        root = self.roots[0]
+        col = 1 if self.opt["only_synced"] else 0
+        totals: dict = {}
+        for p in self.folders:
+            if p.startswith(root + "/"):
+                top = root + "/" + p[len(root) + 1:].split("/")[0]
+                totals[top] = totals.get(top, 0) + self._counts(p)[col]
+        taken: dict = {}
+        for top in sorted(self.children(root), key=str.casefold):
+            r, name = self.res[top], name_of(top)
+            if r["kind"] != PLATFORM or not totals.get(top):
+                self.left_out.append(name)
+                continue
+            if r["slug"] in taken:                 # two folders, one platform: the first one wins
+                self.lost[top] = taken[r["slug"]]
+                self.left_out.append(name)
+                continue
+            taken[r["slug"]] = top
+            if name != r["slug"]:
+                self.bindings[name] = r["slug"]
+            self.platforms.append({"slug": r["slug"], "mount": top, "folders": [top], "exclude": [],
+                                   "templates": ["roms/{platform}/{game}"], "files": totals[top]})
+        self.deep = sorted((p for p, r in self.res.items()
+                            if r["kind"] == PLATFORM and p.startswith(root + "/") and p.count("/") > root.count("/") + 1
+                            and self._uses(p)), key=str.casefold)
+
     def _templates(self, plat: dict, wild: bool, excluded: set) -> list:
         mount, paths = plat["mount"], plat["folders"]
         literal = ["roms/{platform}/" + (rel(p, mount) + "/" if rel(p, mount) else "") + "{game}"
@@ -438,6 +484,11 @@ class Mapping:
                    "source": r["source"], "action": self.user.get(path, ""),
                    "rule": RULES.get(self.inner(path), ""),
                    "used": r["kind"] in (PLATFORM, MERGE, BIOS) and self._uses(path) and path not in self.lost}
+            if self.names:
+                top = "/".join(path.split("/")[:len(self.roots[0].split("/")) + 1]) if self.roots else ""
+                row["used"] = r["kind"] in (PLATFORM, MERGE) and any(p["mount"] == top for p in self.platforms)
+                if path in self.deep:
+                    row["note"] = "only folders directly inside can be platforms here"
             if path in self.lost:
                 row["conflict"] = self.lost[path]
             if r.get("excluded_tree"):
@@ -449,7 +500,20 @@ class Mapping:
 
     def warnings(self) -> list:
         w = []
-        unmapped = [p for p, r in self.res.items() if r["kind"] == UNMAPPED and self._uses(p)]
+        if self.names:
+            if len(self.roots) > 1:
+                w.append("RomM folder names reads one download folder; only the first one is used.")
+            if self.left_out:
+                w.append(f"{len(self.left_out)} folders directly inside have no platform (or are excluded) and are "
+                         "left out of RomM: " + ", ".join(self.left_out[:6]) + (" ..." if len(self.left_out) > 6 else ""))
+            if self.deep:
+                w.append("Only the folders directly inside the download folder can be platforms when RomM reads "
+                         "folder names; these are ignored (use platform links for nested folders): "
+                         + ", ".join(self.deep[:6]) + (" ..." if len(self.deep) > 6 else ""))
+            for p, winner in self.lost.items():
+                w.append(f"{name_of(p)} and {name_of(winner)} are both set to {self.res[p]['slug']}: RomM gets "
+                         f"{name_of(winner)}, {name_of(p)} is left out.")
+        unmapped = [] if self.names else [p for p, r in self.res.items() if r["kind"] == UNMAPPED and self._uses(p)]
         if unmapped:
             w.append(f"{len(unmapped)} folders with files have no RomM platform yet and are left out: "
                      + ", ".join(unmapped[:6]) + (" ..." if len(unmapped) > 6 else ""))
@@ -466,7 +530,7 @@ class Mapping:
             if f["ignored"]:
                 w.append(f"Firmware for {f['slug']} comes from {f['mount']}; also found in "
                          + ", ".join(f["ignored"]) + " (left out - RomM reads one firmware folder per platform).")
-        for c in self.conflicts:
+        for c in self.conflicts:                  # (links mode)
             w.append(f"{c['slug']} is in more than one download folder: RomM gets "
                      f"{', '.join(c['winner_folders'])} ({c['winner']} is first in the list), not "
                      f"{', '.join(c['folders'])}. Exclude the one you don't want, or change the order.")
@@ -485,7 +549,10 @@ class Mapping:
         return self.roots[0] if self.roots else None
 
     def link_targets(self) -> dict:
-        """{platform slug: relative link target}, e.g. {"snes": "lolroms/Nintendo/Super Famicom"}"""
+        """{platform slug: relative link target}, e.g. {"snes": "lolroms/Nintendo/Super Famicom"}.
+        None in names mode: RomM reads the folders themselves (apply_links removes old links)."""
+        if self.names:
+            return {}
         return {p["slug"]: p["mount"] for p in self.platforms}
 
     def romm_folder(self) -> str:
@@ -504,6 +571,17 @@ class Mapping:
         links folder is mounted at the same path here as on the server, so it's the server path."""
         host = self.base or "/path/on/your/server"
         inside = self.library() + "/roms"
+        if self.names:
+            host = os.path.join(self.base, self.roots[0]) if self.base and self.roots else "/path/to/roms"
+            return ("    volumes:\n"
+                    "      # for the RomM service: replace its .../romm/library/roms line - RomM reads your\n"
+                    "      # download folder directly (add :ro at the end to mount it read-only)\n"
+                    f"      - {json.dumps(host + ':' + inside, ensure_ascii=False)}\n"
+                    "\n"
+                    "# Or keep the path in the stack's ENV file (Compose Manager: Edit Stack > ENV File):\n"
+                    f"#   ROMM_ROMS={host}\n"
+                    "# and use this line in the compose file instead:\n"
+                    f"#   - ${{ROMM_ROMS}}:{inside}\n")
         return ("    volumes:\n"
                 "      # for the RomM service: replace its .../romm/library/roms line with the folder that\n"
                 f"      # holds the download folders ({', '.join(self.roots) or 'downloads'}) and the platform links.\n"
@@ -515,6 +593,8 @@ class Mapping:
                 f"#   - ${{ROMM_ROMS}}:{inside}\n")
 
     def config_yml(self) -> str:
+        if self.names:
+            return self._config_yml_names()
         q = lambda s: json.dumps(s, ensure_ascii=False)  # noqa: E731 - JSON strings are valid YAML
         lines = ["# RomM config.yml - generated by ROM Mapper. Merge these sections into your config.yml",
                  "# (keep your other settings). Platforms: ROM Mapper's links in roms/<platform>.", ""]
@@ -550,6 +630,36 @@ class Mapping:
         versions = {p["slug"]: VERSIONS[p["slug"]] for p in self.platforms if p["slug"] in VERSIONS}
         if versions:
             lines += ["system:", "  versions:"] + [f"    {q(k)}: {q(v)}" for k, v in versions.items()] + [""]
+        return "\n".join(lines)
+
+    def _config_yml_names(self) -> str:
+        """config.yml when RomM reads the download folder itself: system.platforms renames folders
+        to platforms, exclude.platforms (matched against folder names) leaves out the rest."""
+        q = lambda s: json.dumps(s, ensure_ascii=False)  # noqa: E731 - JSON strings are valid YAML
+        lines = ["# RomM config.yml - generated by ROM Mapper. Merge these sections into your config.yml",
+                 "# (keep your other settings). RomM reads your folders directly; no links.", ""]
+        versions = {p["slug"]: VERSIONS[p["slug"]] for p in self.platforms if p["slug"] in VERSIONS}
+        if self.bindings or versions:
+            lines.append("system:")
+            if self.bindings:
+                lines += ["  # your folder name: the RomM platform it is",
+                          "  platforms:"] + [f"    {q(k)}: {q(v)}" for k, v in
+                                             sorted(self.bindings.items(), key=lambda kv: kv[0].casefold())]
+            if versions:
+                lines += ["  versions:"] + [f"    {q(k)}: {q(v)}" for k, v in versions.items()]
+            lines.append("")
+        out = sorted(set(self.left_out), key=str.casefold)
+        names = sorted(set(self.excluded_names()) | (set(self.opt.get("skip_names") or []) if self.platforms else set()),
+                       key=str.casefold)
+        if out or names:
+            lines.append("exclude:")
+            if out:
+                lines += ["  # folders without a platform (or excluded) - not platforms",
+                          "  platforms:"] + [f"    - {q(n)}" for n in out]
+            if names:
+                lines += ["  roms:", "    multi_file:", "      # subfolders that are not games",
+                          "      names:"] + [f"        - {q(n)}" for n in names]
+            lines.append("")
         return "\n".join(lines)
 
     def summary(self) -> dict:

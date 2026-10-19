@@ -359,3 +359,55 @@ def test_big_answers_are_compressed(env):
     assert zipped.headers["Content-Encoding"] == "gzip" and "Accept-Encoding" in zipped.headers["Vary"]
     assert json.loads(gzip.decompress(zipped.data)) == plain.get_json()
     assert len(zipped.data) < len(plain.data) / 3
+
+
+def names_setup(env):
+    """A RomM-style collection with one folder per system, mapped in RomM folder names mode."""
+    rom = env.path("roms", "collection")
+    make_dirs(rom, "snes", "snes/media/box2d", "amigacdtv", "psx/Game A", "junk", "exodos/eXo/G1")
+    server, c = env.start()
+    d = c.put("/api/romm/options", json={"sources": [rom]}).get_json()
+    assert d["options"]["mode"] == "links", "older settings (no mode) keep the links"
+    c.put("/api/romm/map", json={"path": "collection/amigacdtv", "action": "commodore-cdtv"})
+    c.put("/api/romm/map", json={"path": "collection/exodos", "action": "exclude"})
+    return server, c, rom
+
+
+def test_romm_folder_names_mode(env):
+    server, c, rom = names_setup(env)
+    d = c.put("/api/romm/options", json={"mode": "names"}).get_json()
+    assert d["options"]["mode"] == "names"
+    y = d["outputs"]["config"]
+    system, exclude = y.split("exclude:")
+    assert '"amigacdtv": "commodore-cdtv"' in system, "a renamed folder is bound to its platform"
+    assert '"snes"' not in system and '"psx"' not in system, "folders named like a platform need nothing"
+    left_out = exclude.split("roms:")[0]
+    assert '- "junk"' in left_out and '- "exodos"' in left_out, "no platform or excluded: left out"
+    assert '"snes"' not in left_out and '"psx"' not in left_out, "psx's games are all in subfolders - still in"
+    assert '- "media"' in exclude.split("roms:")[1], "never-read names are ignored by RomM too"
+    assert "filesystem:" not in y, "RomM's own folder layout"
+    assert f'"{rom}:/romm/library/roms"' in d["outputs"]["compose"]
+    assert d["links"]["targets"] == {}, "no links"
+    r = rows(d)
+    assert r["collection/amigacdtv"]["value"] == "commodore-cdtv" and r["collection/amigacdtv"]["used"]
+    assert c.put("/api/romm/options", json={"mode": "folders"}).status_code == 400
+
+
+def test_switching_to_folder_names_removes_old_links(env):
+    server, c, rom = names_setup(env)
+    links = env.path("roms")
+    c.post("/api/romm/links")
+    assert os.readlink(os.path.join(links, "commodore-cdtv")) == "collection/amigacdtv"
+    c.put("/api/romm/options", json={"mode": "names"})
+    d = c.post("/api/romm/links").get_json()
+    assert "commodore-cdtv" in d["applied"]["removed"] and not os.path.lexists(os.path.join(links, "commodore-cdtv"))
+    assert os.path.isdir(os.path.join(rom, "amigacdtv")), "the folders themselves are untouched"
+
+
+def test_folder_names_mode_explains_nested_platforms(env):
+    """lolroms' platforms are nested (Nintendo/Super Famicom): RomM can't read those by name."""
+    server, c, d, lol, rom = setup(env)
+    d = c.put("/api/romm/options", json={"sources": [lol], "mode": "names"}).get_json()
+    r = rows(d)
+    assert "directly inside" in r["lolroms/Nintendo/Super Famicom"]["note"]
+    assert any("platform links for nested folders" in w for w in d["warnings"])

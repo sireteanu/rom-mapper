@@ -39,6 +39,10 @@ and tests create real symlinks - run the tests on Linux (CI: `.github/workflows/
   The folder cache is never reset by saving: its key (`romm_setup`) covers what changes the folders;
   choices/options pass `reuse=True` (no disk access at all). Excluded folders without a choice below
   them are not read inside (`romm_stops` -> `stop`). The cache is stamped when a read ends.
+  `mode` ("links" default / "names"; NOT `method` - that key is Rom Sync's and options_from drops it):
+  names mode = RomM reads the first download folder itself; `Mapping._group_names` makes platforms of
+  the folders directly inside it, `bindings` -> system.platforms, `left_out` -> exclude.platforms
+  (RomM matches those against folder names), `link_targets()` is {} so apply_links removes ours.
   `skip_names` (default `["media"]`, fnmatch, case-insensitive) is applied while reading
   (`romm.skipped`), is part of the folder cache key, and goes into config.yml's exclude names.
 - Disk reads: RomM folder counts (`romm.folders_from_disk`) re-list only folders whose mtime changed,

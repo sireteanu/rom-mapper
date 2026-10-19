@@ -173,6 +173,22 @@ its roms folder. The **RomM** tab maps your download folders to that without mov
 **Refresh** and **Create / update links now** buttons sit at the top, where the grid's buttons are on
 the other tab.
 
+**How RomM sees your folders** - two ways, chosen on the tab:
+
+| | RomM folder names | Platform links (default) |
+|---|---|---|
+| For | one download folder with one folder per system | nested downloads (lolroms), several download folders |
+| RomM mounts | the download folder itself as `/romm/library/roms` | the links folder as `/romm/library/roms` |
+| Your folder names | renamed in `config.yml`: `system.platforms` (`amigacdtv: commodore-cdtv`) | a link per platform: `commodore-cdtv -> roms/amigacdtv` |
+| Left out | `exclude.platforms` (folder names; RomM matches them against folder names) | no link |
+| Platforms | only folders directly inside the download folder | any folder |
+
+Both use only what RomM reads from `config.yml` (`system.platforms`, `exclude.platforms`,
+`exclude.roms.multi_file.names`, `filesystem.structure`, `system.versions`). In folder names mode a
+system counts when it or anything inside it has files; deeper folders with a platform of their own
+are listed with a note, and two folders set to the same platform keep the first one. The links
+button becomes **Remove old platform links** (it removes only links ROM Mapper made).
+
 - **Download folders**: a list in priority order (add, remove, move up/down). Each is read from
   disk (counts are reused for 30 s; after that only folders whose date changed are
   listed again, with a full read every hour and on **Refresh**, because on shares spread over
@@ -231,7 +247,8 @@ All in the config folder (`/config` in Docker):
 | `rom-mapper-mapping.json` | The mapping: frontends (name, media toggle, media location) and rows (folder, one name per frontend) |
 | `rom-mapper-mapping.json.bak` | The previous version, written on every save |
 | `rom-mapper-state.json` | Source folders, schedule settings (`scan_every` / `scan_unit`, `sync_every` / `sync_unit`; units `minutes`, `hours`, `days`), last scan and last resync |
-| `romm-mapper.json` | RomM: download folders (`sources`), levels per folder (`depths`, only those not set to all), folder names never read (`skip_names`; missing = `["media"]`), links folder, options, your choices (`map`, by `<download folder>/<path>`) |
+| `romm-mapper.json` | RomM: download folders (`sources`), levels per folder (`depths`, only those not set to all), folder names never read (`skip_names`; missing = `["media"]`), how RomM sees the folders (`mode`:
+`links` or `names`; missing = `links`), links folder, options, your choices (`map`, by `<download folder>/<path>`) |
 
 Files are written to a temporary file first and then swapped in, so a crash never leaves half a
 file. Environment variables: `CONFIG_DIR` (default `/config`), `SRC_BASE` (first source folder(s),
