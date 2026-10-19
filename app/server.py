@@ -705,6 +705,7 @@ def romm_view(fresh=False, reuse=False):
         return {**base, "rows": [], "platforms": [], "firmware": [], "warnings": [], "summary":
                 {"platforms": 0, "firmware": 0, "files": 0}, "links": {}, "outputs": {"compose": "", "config": ""}}
     rows = m.rows()
+    m.other_folders = romm.other_folders(m)
     return {**base,
             "links": {"dir": m.links_dir, "roots": m.roots, "targets": m.link_targets()},
             "conflicts": m.conflicts,

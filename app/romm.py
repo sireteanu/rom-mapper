@@ -232,6 +232,7 @@ class Mapping:
         self.roots = list(roots or [])
         self.base = os.path.abspath(links_dir) if links_dir else ""
         self.user = {k: v for k, v in (self.opt.get("map") or {}).items() if v}
+        self.other_folders: list = []   # real folders in the links folder that aren't ours (see other_folders)
         self.res: dict = {}          # path -> dict(kind, slug, source)
         self._resolve()
         self._group()
@@ -499,11 +500,19 @@ class Mapping:
         return f.split("/roms/")[0] if "/roms/" in f else "/romm/library"
 
     def compose(self) -> str:
-        """The one volume line RomM's compose file needs: the links folder as its roms folder."""
+        """The one volume line RomM's compose file needs: the links folder as its roms folder. The
+        links folder is mounted at the same path here as on the server, so it's the server path."""
+        host = self.base.replace(os.sep, "/") if self.base else "/path/on/your/server"
+        inside = self.library() + "/roms"
         return ("    volumes:\n"
-                "      # for the RomM service: replace its .../romm/library/roms line with\n"
-                f"      # the server folder that holds the download folders ({', '.join(self.roots) or 'downloads'}) and the platform links.\n"
-                f"      - {json.dumps('/path/on/your/server:' + self.library() + '/roms', ensure_ascii=False)}\n")
+                "      # for the RomM service: replace its .../romm/library/roms line with the folder that\n"
+                f"      # holds the download folders ({', '.join(self.roots) or 'downloads'}) and the platform links.\n"
+                f"      - {json.dumps(host + ':' + inside, ensure_ascii=False)}\n"
+                "\n"
+                "# Or keep the path in the stack's ENV file (Compose Manager: Edit Stack > ENV File):\n"
+                f"#   ROMM_ROMS={host}\n"
+                "# and use this line in the compose file instead:\n"
+                f"#   - ${{ROMM_ROMS}}:{inside}\n")
 
     def config_yml(self) -> str:
         q = lambda s: json.dumps(s, ensure_ascii=False)  # noqa: E731 - JSON strings are valid YAML
@@ -513,9 +522,13 @@ class Mapping:
                        | (set(self.opt.get("skip_names") or []) if self.platforms else set()),
                        key=str.casefold)
         tops = sorted({r.split("/")[0] for r in self.roots}, key=str.casefold)
+        others = sorted(set(self.other_folders) - set(tops), key=str.casefold)
         if tops:
             lines += ["exclude:", "  # the download folders themselves are not platforms (their platforms are linked)",
                       "  platforms:"] + [f"    - {q(t)}" for t in tops]
+            if others:
+                lines += ["    # other folders in the links folder - RomM would take them for platforms"]
+                lines += [f"    - {q(t)}" for t in others]
             if names:
                 lines += ["  roms:", "    multi_file:",
                           "      # subfolders that are another platform, firmware or not games",
@@ -615,6 +628,28 @@ def apply_links(m: "Mapping") -> dict:
     except OSError as e:
         res["errors"].append(str(e))
     return res
+
+
+def other_folders(m: "Mapping") -> list:
+    """Real folders in the links folder besides the download folders and the platform links (e.g.
+    "sets" next to "roms"): RomM reads every folder there as a platform, so config.yml excludes
+    them. Links, dot-folders and folders named like a platform we link are left alone."""
+    if not m.links_dir:
+        return []
+    ours = set(m.link_targets())
+    out = []
+    try:
+        with os.scandir(m.links_dir) as it:
+            for e in it:
+                try:
+                    if e.name.startswith(".") or e.is_symlink() or not e.is_dir() or e.name in ours:
+                        continue
+                except OSError:
+                    continue
+                out.append(e.name)
+    except OSError:
+        return []
+    return sorted(out, key=str.casefold)
 
 
 def describe_links(res: dict) -> str:

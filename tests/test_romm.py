@@ -83,9 +83,22 @@ def test_config_yml_and_compose_line(env):
     y = d["outputs"]["config"]
     assert 'platforms:\n    - "collection"\n    - "lolroms"' in y
     assert '"Satellaview"' in y and '"snes":' in y
-    assert '"/path/on/your/server:/romm/library/roms"' in d["outputs"]["compose"]
+    links = os.path.abspath(env.path("roms")).replace(os.sep, "/")
+    assert f'"{links}:/romm/library/roms"' in d["outputs"]["compose"], "the real links folder"
+    assert f"ROMM_ROMS={links}" in d["outputs"]["compose"], "and the ENV-file way"
     d = c.put("/api/romm/options", json={"romm_folder": "/romm/data/roms/lolroms"}).get_json()
-    assert ':/romm/data/roms"' in d["outputs"]["compose"]
+    assert f'"{links}:/romm/data/roms"' in d["outputs"]["compose"]
+
+
+def test_config_yml_excludes_other_folders_in_the_links_folder(env):
+    """The links folder is RomM's roms folder: any other real folder there would become a platform."""
+    server, c, d, lol, rom = setup(env)
+    make_dirs(env.path("roms"), "sets/mapping", ".hidden")
+    c.post("/api/romm/links")                                  # platform links appear next to them
+    y = c.get("/api/romm").get_json()["outputs"]["config"]
+    head = y.split("roms:")[0]
+    assert '- "sets"' in head, "a real folder is excluded as a platform"
+    assert '- ".hidden"' not in head and '- "snes"' not in head, "dot-folders and our links are not"
 
 
 def test_problems_are_explained(env):

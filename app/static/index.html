@@ -773,7 +773,7 @@ $("srcSave").onclick = async () => {
   const q = (sel, el = document) => el.querySelector(sel);
   const num = (n) => (n || 0).toLocaleString();
   const HELP = {
-    compose: "For RomM's container: map the links folder as RomM's roms folder (replace its .../romm/library/roms line).",
+    compose: "For RomM's container (its compose file): this line makes the links folder RomM's roms folder - replace RomM's own .../romm/library/roms line with it.",
     config: "Merge into RomM's config.yml (in its /romm/config folder), keeping your other settings.",
   };
   let R = null, tab = "compose", outTab = "compose";
@@ -858,8 +858,8 @@ $("srcSave").onclick = async () => {
     inp.focus();
   }
   function result(r) {
-    if (r.kind === "platform") return [r.used ? `roms/${r.slug}` : `roms/${r.slug} (no files yet)`, r.custom ? "warn" : "ok"];
-    if (r.kind === "merge") return [r.used ? `in ${r.slug}` : `in ${r.slug} (no files yet)`, "ok"];
+    if (r.kind === "platform") return [r.used ? `in RomM as roms/${r.slug}` : `roms/${r.slug} (no files yet)`, r.custom ? "warn" : "ok"];
+    if (r.kind === "merge") return [r.used ? `part of ${r.slug}` : `part of ${r.slug} (no files yet)`, "ok"];
     if (r.kind === "bios") return [`firmware: bios/${r.slug}`, "ok"];
     if (r.kind === "skip") return ["left out of RomM", "none"];
     return ["no platform", "bad"];

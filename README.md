@@ -205,12 +205,13 @@ the other tab.
   shows just those rows.
 - **Platform links**: relative links named after the platforms, kept in the folder that holds the
   download folders (the *links folder*): `<links folder>/<slug> -> <download folder>/<path>`. Map the
-  links folder as RomM's roms folder (the **RomM compose** tab shows the line).
+  links folder as RomM's roms folder (the **RomM compose** tab shows the line with your folder,
+  and the same as an ENV-file variable, `ROMM_ROMS`, for Compose Manager's ENV file).
   **Create / update links now** makes them and turns on *Update the links with every scan*. Only
   links pointing into a download folder are ever changed or removed; real folders and other links
   are left alone. All download folders must be inside the links folder.
-- **config.yml**: merge the generated section into RomM's `config.yml`: the download folders aren't
-  platforms (`exclude.platforms`), which subfolders belong to a platform (`{category}` levels by
+- **config.yml**: merge the generated section into RomM's `config.yml`: the download folders - and
+  any other real folder in the links folder, like `sets` - aren't platforms (`exclude.platforms`), which subfolders belong to a platform (`{category}` levels by
   default, or exact names), which to ignore, and `system.versions` for arcade boards RomM has no
   platform for. Firmware isn't linked (RomM's bios folder is separate) - the dialog lists the
   folders to copy. Restart RomM and scan its library.

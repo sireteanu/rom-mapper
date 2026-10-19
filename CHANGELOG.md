@@ -5,6 +5,20 @@ release. Newest first.
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-10-19
+
+### Fixed
+- **The RomM compose tab showed a placeholder** (`/path/on/your/server`) instead of your links
+  folder. It now shows the real line, e.g. `"/path/to/shares:/romm/library/roms"`, and the same
+  thing as an ENV-file variable (`ROMM_ROMS=...` and `- ${ROMM_ROMS}:/romm/library/roms`) for a
+  shorter compose file.
+- **Other folders next to the download folders became RomM platforms.** The links folder is RomM's
+  roms folder, so a folder like `sets` beside `roms` showed up as a platform. The generated
+  `config.yml` now excludes every real folder there that isn't one of the platform links.
+
+### Improved
+- The result of a mapped folder reads "in RomM as roms/<platform>" instead of just the path.
+
 ## [1.0.6] - 2026-10-19
 
 ### Fixed
