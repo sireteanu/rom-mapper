@@ -5,6 +5,22 @@ release. Newest first.
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-10-19
+
+### Fixed
+- **A platform choice snapped back to "pick a platform"** (and the result stayed "no platform").
+  Every choice made the RomM tab read all download folders again; on a big share that took
+  minutes, and meanwhile the page showed the old list. Choices and options now reuse the folder
+  list - nothing is read from disk.
+- **The progress box stayed up long after "N of N folders"**: right after a long read, the page's
+  next request checked every folder again. It now says "preparing the list" and finishes quickly.
+
+### Improved
+- **Searchable platform picker.** Click a folder's platform and type: `snes`, `nintendo`, `sega`,
+  `exclude`… Arrow keys and Enter work; the maker is shown next to each platform.
+- **Excluded folders aren't read any more.** A folder you exclude (with no choice of yours inside
+  it) is no longer read inside, so a big collection like eXoDOS stops slowing down every read.
+
 ## [1.0.5] - 2026-10-19
 
 ### Improved

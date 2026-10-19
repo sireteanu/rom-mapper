@@ -145,7 +145,19 @@
                font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
   .romm td.n { text-align: right; color: var(--muted); }
   .romm td.res { white-space: nowrap; font-size: 12.5px; }
-  .romm select.act { width: 210px; font-size: 12.5px; }
+  .romm button.act { width: 210px; font-size: 12.5px; text-align: left; overflow: hidden; text-overflow: ellipsis;
+                      white-space: nowrap; padding: 3px 22px 3px 6px; position: relative; background: var(--input-bg); }
+  .romm button.act::after { content: "▾"; position: absolute; right: 7px; color: var(--muted); }
+  .picker { position: fixed; z-index: 50; width: 340px; max-width: calc(100vw - 16px); background: var(--panel);
+            border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.35); padding: 6px; }
+  .picker input { width: 100%; margin-bottom: 4px; }
+  .picker ul { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow: auto; }
+  .picker li { padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+  .picker li.cur { font-weight: 600; }
+  .picker li.active { background: var(--accent); color: var(--accent-text); }
+  .picker li .fam { color: var(--muted); font-size: 11.5px; margin-left: 6px; }
+  .picker li.active .fam { color: inherit; opacity: .8; }
+  .picker .none { color: var(--muted); padding: 6px 8px; font-size: 12.5px; }
   .romm .tabs { display: flex; gap: 2px; margin-right: auto; }
   .romm .tab { font-size: 12.5px; padding: 3px 10px; border-color: transparent; background: transparent; color: var(--muted); }
   .romm .tab.on { color: var(--text); background: var(--hover); border-color: var(--border); }
@@ -769,21 +781,81 @@ $("srcSave").onclick = async () => {
 
   const label = (v) => v === "exclude" ? "exclude - leave out of RomM" : v === "firmware" ? "firmware (automatic)"
     : v === "" ? "- pick a platform -" : (() => { const p = R.slugs.find(x => x.slug === v); return p ? `${v} - ${p.name}` : v; })();
-  // a dropdown is filled with only its current choice until it's opened (hundreds of rows x platforms)
-  function fill(sel, r, value, full) {
-    sel.innerHTML = "";
-    const add = (parent, v, text) => { const o = document.createElement("option"); o.value = v; o.textContent = text; parent.append(o); };
-    if (!full) add(sel, value, label(value));
-    else {
-      if (value === "") add(sel, "", label(""));
-      if (value === "firmware" || r.auto === "firmware") add(sel, "firmware", label("firmware"));
-      add(sel, "exclude", label("exclude"));
-      const g = document.createElement("optgroup"); g.label = "RomM platforms"; sel.append(g);
-      for (const p of R.slugs) add(g, p.slug, `${p.slug} - ${p.name}`);
-      if (value && ![...sel.options].some(o => o.value === value)) add(sel, value, value);
-      sel.dataset.full = "1";
+  // ---- the platform picker: one searchable list, opened from a row's button
+  const pk = { el: null, row: null, btn: null, cur: "", items: [], shown: [], active: 0 };
+  function pickerChoices(r, cur) {
+    const out = [];
+    if (r.action) out.push({ v: "", t: r.auto ? `automatic: ${label(r.auto)}` : "no platform (remove your choice)", k: "automatic remove clear" });
+    else if (cur === "") out.push({ v: "", t: label(""), k: "pick" });
+    if (cur === "firmware" || r.auto === "firmware") out.push({ v: "firmware", t: label("firmware"), k: "firmware bios" });
+    out.push({ v: "exclude", t: label("exclude"), k: "exclude leave out skip" });
+    for (const p of R.slugs) out.push({ v: p.slug, t: `${p.slug} - ${p.name}`, fam: p.family, k: `${p.slug} ${p.name} ${p.family}`.toLowerCase() });
+    if (cur && !out.some(o => o.v === cur)) out.push({ v: cur, t: cur, k: cur.toLowerCase() });
+    return out;
+  }
+  function pickerList() {
+    const words = q("input", pk.el).value.toLowerCase().split(/\s+/).filter(Boolean);
+    pk.shown = pk.items.filter(o => words.every(w => o.k.includes(w) || o.t.toLowerCase().includes(w)));
+    pk.active = Math.max(0, Math.min(pk.active, pk.shown.length - 1));
+    const ul = q("ul", pk.el); ul.innerHTML = "";
+    pk.shown.forEach((o, i) => {
+      const li = document.createElement("li");
+      li.id = "rPickOpt" + i; li.setAttribute("role", "option"); li.textContent = o.t;
+      if (o.fam) { const f = document.createElement("span"); f.className = "fam"; f.textContent = o.fam; li.append(f); }
+      li.classList.toggle("cur", o.v === pk.cur);
+      li.classList.toggle("active", i === pk.active);
+      li.setAttribute("aria-selected", String(i === pk.active));
+      li.onpointerdown = (e) => { e.preventDefault(); pickerChoose(o.v); };
+      ul.append(li);
+    });
+    if (!pk.shown.length) ul.innerHTML = `<li class="none">No platform matches - try fewer letters.</li>`;
+    q("input", pk.el).setAttribute("aria-activedescendant", pk.shown.length ? "rPickOpt" + pk.active : "");
+    const act = ul.children[pk.active]; if (act && act.scrollIntoView) act.scrollIntoView({ block: "nearest" });
+  }
+  function pickerClose(refocus) {
+    if (!pk.el || pk.el.hidden) return;
+    pk.el.hidden = true;
+    if (refocus && pk.btn && pk.btn.isConnected) pk.btn.focus();
+  }
+  let focusPath = null;            // the row whose button gets the focus back after a choice
+  function pickerChoose(v) {
+    const r = pk.row; pickerClose(true); focusPath = r && r.path;
+    if (!r || v === pk.cur) return;
+    // the built-in result or "firmware" means: no choice of your own
+    save(r.path, v === r.auto || v === "firmware" ? "" : v, v === "" ? r.auto : v);
+  }
+  function openPicker(btn, r, cur) {
+    if (!pk.el) {
+      pk.el = document.createElement("div"); pk.el.className = "picker"; pk.el.hidden = true;
+      pk.el.setAttribute("role", "dialog");
+      pk.el.innerHTML = `<input type="search" placeholder="Search: snes, nintendo, sega, exclude…" role="combobox"
+        aria-expanded="true" aria-controls="rPickList" aria-label="Search RomM platforms"><ul id="rPickList" role="listbox"></ul>`;
+      $("paneRomm").append(pk.el);
+      const inp = q("input", pk.el);
+      inp.addEventListener("input", () => { pk.active = 0; pickerList(); });
+      inp.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowDown") { pk.active = Math.min(pk.active + 1, pk.shown.length - 1); pickerList(); e.preventDefault(); }
+        else if (e.key === "ArrowUp") { pk.active = Math.max(pk.active - 1, 0); pickerList(); e.preventDefault(); }
+        else if (e.key === "Enter") { if (pk.shown[pk.active]) pickerChoose(pk.shown[pk.active].v); e.preventDefault(); }
+        else if (e.key === "Escape") { pickerClose(true); e.preventDefault(); }
+        else if (e.key === "Tab") pickerClose(false);
+      });
+      document.addEventListener("pointerdown", (e) => { if (!pk.el.hidden && !pk.el.contains(e.target) && e.target !== pk.btn) pickerClose(false); });
+      window.addEventListener("resize", () => pickerClose(false));
+      document.addEventListener("scroll", (e) => { if (!pk.el.contains(e.target)) pickerClose(false); }, true);
     }
-    sel.value = value;
+    if (!pk.el.hidden && pk.btn === btn) { pickerClose(true); return; }
+    Object.assign(pk, { row: r, btn, cur, items: pickerChoices(r, cur) });
+    const inp = q("input", pk.el); inp.value = "";
+    pk.active = Math.max(0, pk.items.findIndex(o => o.v === cur));
+    pk.el.hidden = false;
+    const b = btn.getBoundingClientRect(), w = Math.min(340, innerWidth - 16);
+    pk.el.style.left = Math.max(8, Math.min(b.left, innerWidth - w - 8)) + "px";
+    if (innerHeight - b.bottom < 340 && b.top > innerHeight - b.bottom) {
+      pk.el.style.top = ""; pk.el.style.bottom = (innerHeight - b.top + 2) + "px";
+    } else { pk.el.style.bottom = ""; pk.el.style.top = (b.bottom + 2) + "px"; }
+    pickerList();
+    inp.focus();
   }
   function result(r) {
     if (r.kind === "platform") return [r.used ? `roms/${r.slug}` : `roms/${r.slug} (no files yet)`, r.custom ? "warn" : "ok"];
@@ -841,6 +913,7 @@ $("srcSave").onclick = async () => {
   }
   function render() {
     const d = R;
+    pickerClose(false);
     $("rError").hidden = !d.error; $("rError").textContent = d.error || "";
     renderSources(); renderFilter();
     const overlap = new Set();
@@ -877,11 +950,11 @@ $("srcSave").onclick = async () => {
       const walk = (parent, level) => {
         for (let r of kids.get(parent) || []) {
           if (show.startsWith("root:") && r.root !== show.slice(5) && r.path !== show.slice(5)) continue;
-          let label = parent ? r.path.slice(parent.length + 1) : r.path;
+          let shown = parent ? r.path.slice(parent.length + 1) : r.path;
           for (let only; r.group && (only = kids.get(r.path) || []).length === 1 && only[0].group; ) {
-            label += only[0].path.slice(r.path.length); r = only[0];
+            shown += only[0].path.slice(r.path.length); r = only[0];
           }
-          list.push([r, level, label]);
+          list.push([r, level, shown]);
           if (isOpen(r.path)) walk(r.path, level + 1);
         }
       };
@@ -889,12 +962,12 @@ $("srcSave").onclick = async () => {
     }
     const total = list.length;
     list = list.slice(0, MAX_ROWS);
-    for (const [r, level, label] of list) {
+    for (const [r, level, shown] of list) {
       const tr = document.createElement("tr");
       if (r.group) tr.className = "group";
       if (roots.has(r.path)) tr.className = "root";
       if (r.conflict) tr.className = "conflict";
-      tr.innerHTML = `<td class="p"></td><td class="n"></td><td><select class="act"></select></td><td class="res"></td>`;
+      tr.innerHTML = `<td class="p"></td><td class="n"></td><td><button type="button" class="act"></button></td><td class="res"></td>`;
       const cell = tr.children[0], n = below[r.path] ?? (below[r.path] = count(r.path));
       cell.title = r.path;
       cell.style.paddingLeft = `${6 + level * 16}px`;
@@ -909,17 +982,17 @@ $("srcSave").onclick = async () => {
         } else tw.tabIndex = -1;
         cell.append(tw);
       }
-      cell.append(document.createTextNode(label));
+      cell.append(document.createTextNode(shown));
       if (!flat && n && !isOpen(r.path)) {
         const k = document.createElement("span"); k.className = "kids"; k.textContent = `${num(n)} inside`; cell.append(k);
       }
       tr.children[1].textContent = r.group ? "" : num(r.files);
-      const sel = q(".act", tr);
-      fill(sel, r, r.path in pending ? pending[r.path] : r.value, false);
-      const full = () => { if (!sel.dataset.full) fill(sel, r, sel.value, true); };
-      ["pointerdown", "focus", "keydown"].forEach(ev => sel.addEventListener(ev, full));
-      sel.setAttribute("aria-label", `RomM platform for ${r.path}`);
-      sel.addEventListener("change", () => save(r.path, sel.value === r.auto || sel.value === "firmware" ? "" : sel.value, sel.value));
+      const pick = q(".act", tr), cur = r.path in pending ? pending[r.path] : r.value;
+      pick.textContent = label(cur); pick.title = label(cur);
+      pick.setAttribute("aria-label", `RomM platform for ${r.path}: ${label(cur)}`);
+      pick.setAttribute("aria-haspopup", "listbox");
+      pick.onclick = () => openPicker(pick, r, cur);
+      if (focusPath === r.path) { focusPath = null; setTimeout(() => pick.focus(), 0); }
       let [text, cls] = result(r);
       if (r.group) {                  // a folder that only holds other folders
         [text, cls] = r.value === "exclude" ? ["left out of RomM, with everything inside", "none"]
@@ -1011,10 +1084,12 @@ $("srcSave").onclick = async () => {
         showProgress(p);
         if (p.running) continue;
         if (p.error) throw new Error(p.error);
+        q(".ptext", $("rProgress")).textContent = "Read finished - preparing the list…";
         const next = await api("GET", "/api/romm");
         if (next.reading) {          // the list changed meanwhile: read it again
           R = { ...R, sources: next.sources, depths: next.depths }; renderSources(); showProgress(next.reading); continue;
         }
+        for (const k in pending) delete pending[k];      // the new rows include every saved choice
         setReading(false); loadR(next); toast("Download folders read.");
         return;
       }
@@ -1036,7 +1111,8 @@ $("srcSave").onclick = async () => {
   }
   async function save(path, action, shown) {
     pending[path] = shown;
-    try { const d = await api("PUT", "/api/romm/map", { path, action }); delete pending[path]; loadR(d); }
+    // keep showing the choice until rows that include it arrive (not while the folders are re-read)
+    try { const d = await api("PUT", "/api/romm/map", { path, action }); if (!d.reading) delete pending[path]; loadR(d); }
     catch (e) { delete pending[path]; alert(`Not saved for ${path}: ${e.message}`); render(); }
   }
   async function options(extra = {}) {

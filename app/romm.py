@@ -632,12 +632,13 @@ IGNORED_FILES = {"thumbs.db", "desktop.ini"}
 
 
 def folders_from_roots(links_dir: str, sources: list, full: bool = True, depths: Optional[dict] = None,
-                       progress=None, skip=()) -> tuple:
+                       progress=None, skip=(), stop=None) -> tuple:
     """Read every download folder -> ({path relative to links_dir: (files, files)}, [roots]).
     Folders above a root (e.g. "sets" for links_dir/sets/collection) are added with no files.
     depths: {download folder: levels to list} (missing or 0 = all). progress(i, n, done, total,
     current) is called while folder i of n is read: done of the total folders directly inside it
-    are finished, and current is being read. Folders whose name matches skip aren't read."""
+    are finished, and current is being read. Folders whose name matches skip aren't read. stop:
+    folders (relative to links_dir, like "lolroms/Konami") that are listed but not read inside."""
     out = {"": (0, 0)}
     roots = []
     depths = depths or {}
@@ -648,8 +649,9 @@ def folders_from_roots(links_dir: str, sources: list, full: bool = True, depths:
         for j in range(1, len(parts)):
             out.setdefault("/".join(parts[:j]), (0, 0))
         step = (lambda done, total, cur, i=i: progress(i, len(sources), done, total, cur)) if progress else None
+        inside = {s[len(root) + 1:] for s in (stop or ()) if s.startswith(root + "/")}
         for p, n in folders_from_disk(src, full, depth=int(depths.get(src) or 0), progress=step,
-                                      skip=skip).items():
+                                      skip=skip, stop=inside).items():
             out[root + ("/" + p if p else "")] = n
     return out, roots
 
@@ -660,7 +662,8 @@ def folders_from_roots(links_dir: str, sources: list, full: bool = True, depths:
 _dir_cache: dict = {}
 
 
-def folders_from_disk(source: str, full: bool = True, depth: int = 0, progress=None, skip=()) -> dict:
+def folders_from_disk(source: str, full: bool = True, depth: int = 0, progress=None, skip=(),
+                      stop=()) -> dict:
     """{folder path relative to source: (files in it, files in it)} for every folder under source.
     Rom Sync's catalog knew what was listed on the site; here the disk is the truth, so both
     numbers are the files actually there. Dot-files (Rom Sync's manifest), unfinished downloads
@@ -671,13 +674,14 @@ def folders_from_disk(source: str, full: bool = True, depth: int = 0, progress=N
     last level isn't read further; its subfolders count as items, so a platform folder that keeps
     its games in subfolders (one per multi-disc game) isn't taken for empty. progress(done, total,
     current) is called before each folder directly inside source is read, and once at the end.
-    Folders whose name matches a skip pattern (e.g. "media") are left out and not read at all."""
+    Folders whose name matches a skip pattern (e.g. "media") are left out and not read at all.
+    Folders in stop (paths relative to source) are listed like a last level: not read inside."""
     out = {}
     source = os.path.abspath(source)
     skip = tuple(skip or ())
 
     def visit(path, rel, level):
-        last = bool(depth) and level >= depth
+        last = (bool(depth) and level >= depth) or (rel in stop)
         try:
             mtime = os.stat(path).st_mtime_ns
         except OSError:

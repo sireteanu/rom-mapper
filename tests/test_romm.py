@@ -275,3 +275,41 @@ def test_folders_without_files_are_sent_as_groups_and_can_be_excluded(env):
     r = rows(d)
     assert r["collection/exodos/eXo/eXoDOS/Game A"]["excluded_by"] == "collection/exodos"
     assert r["collection/exodos"]["value"] == "exclude", "with a choice of its own it becomes a row"
+
+
+def test_a_choice_does_not_read_the_folders_again(env, monkeypatch):
+    """On a big share a full read takes minutes: picking a platform or an option must reuse the
+    folder list (it used to start a full read, and the page showed the old choice meanwhile)."""
+    server, c, d, lol, rom = setup(env)
+    c.get("/api/romm")
+    reads = []
+    real = server.romm.folders_from_roots
+    monkeypatch.setattr(server.romm, "folders_from_roots", lambda *a, **k: (reads.append(k.get("full")), real(*a, **k))[1])
+    d = c.put("/api/romm/map", json={"path": "collection/psx", "action": "exclude"}).get_json()
+    assert rows(d)["collection/psx"]["value"] == "exclude"
+    c.put("/api/romm/options", json={"variants": False, "layout": "folders"})
+    assert reads == [], "no folder was read again"
+    c.put("/api/romm/options", json={"sources": [rom, lol]})
+    assert reads == [True], "a change to the download folders still reads them"
+
+
+def test_excluded_folders_are_not_read_inside(env, monkeypatch):
+    """eXoDOS-style: once a folder is excluded, its thousands of subfolders aren't read any more -
+    unless a folder inside it has a choice of its own."""
+    server, c, d, lol, rom = setup(env)
+    make_dirs(rom, "exodos/eXo/!dos/Game A/Extras", "exodos/eXo/!dos/Game B", "exodos/keep/psx2")
+    assert "collection/exodos/eXo/!dos/Game B" in rows(c.get("/api/romm?fresh=1").get_json())
+    c.put("/api/romm/map", json={"path": "collection/exodos", "action": "exclude"})
+    listed = []
+    real = server.romm.os.scandir
+    monkeypatch.setattr(server.romm.os, "scandir", lambda p: (listed.append(p.replace("\\", "/")), real(p))[1])
+    d = c.get("/api/romm?fresh=1").get_json()
+    r = rows(d)
+    assert r["collection/exodos"]["value"] == "exclude"
+    assert not any(k.startswith("collection/exodos/") for k in r), "nothing inside is listed"
+    assert not any("/exodos/" in p for p in listed), "or read"
+    # a choice inside the excluded folder: it has to be read again
+    c.put("/api/romm/map", json={"path": "collection/exodos/keep", "action": "psx"})
+    r = rows(c.get("/api/romm?fresh=1").get_json())
+    assert r["collection/exodos/keep"]["value"] == "psx"
+    assert r["collection/exodos/eXo/!dos/Game B"]["value"] == "exclude", "read again, and still left out"

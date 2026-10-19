@@ -98,9 +98,12 @@ Open the **RomM** tab (or go to `http://YOUR-SERVER:8085/#romm`).
    you get one row per system instead of every folder inside them, and it reads much faster.
    Keep **All levels** for a lolroms download folder.
    The table is a tree: click ▸ next to a folder to see what's inside, or type in **Find a folder**.
+   To keep the list short and the reads fast, set **Levels** to how deep you need: with **2 levels**
+   on a `roms` folder you get `clonehero` and `clonehero/SongPacks`, but not every song pack inside.
+   Excluded folders aren't read inside at all.
    Folders you never want in RomM (like `media`, or `Extras`) go in **Never read folders named** -
    they're skipped everywhere and RomM ignores them too.
-2. **Check the platforms** - pick another platform from a folder's dropdown, or **exclude** to leave
+2. **Check the platforms** - click a folder's platform and type to search (`snes`, `sega`…), or pick **exclude** to leave
    it (and everything inside it) out of RomM. Each choice is saved right away.
 3. **Overlaps** - if two download folders give the same platform, the higher one in the list is
    used and the other is marked *not linked*. Choose **Overlaps only** in the filter to see them;

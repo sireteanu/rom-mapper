@@ -194,7 +194,10 @@ the other tab.
   right inside a download folder is named exactly like a RomM platform (`snes`). Subfolders join
   their parent's platform (variants, translations), except raw dumps and similar (skipped) and
   `BIOS` folders (firmware).
-- **Your choices**: every folder has a dropdown with every RomM platform and **exclude**. Excluding a
+- **Your choices**: every folder has a searchable picker with every RomM platform and **exclude**
+  (type part of a name, slug or maker; arrow keys and Enter). Choices don't read the disk again.
+  A folder you exclude isn't read inside any more (unless a folder inside it has a choice of its
+  own), which keeps big excluded collections from slowing the reads down. Excluding a
   folder leaves it **and everything inside it** out of RomM, unless you choose something else for a
   subfolder. Choices are saved immediately.
 - **Overlaps**: when two download folders give the same platform, the one higher in the list is

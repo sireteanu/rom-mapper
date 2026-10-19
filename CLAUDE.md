@@ -30,6 +30,9 @@ Docker (Unraid). See README.md for the full reference.
 - RomM full reads run in the background (`start_romm_read`, `/api/romm/progress`); `romm_view` answers
   `{reading}` meanwhile. Tests set `server.ROMM_BACKGROUND = False` (conftest) to get rows directly.
   Per-download-folder levels are `depths` in `romm-mapper.json` (missing = all levels).
+  The folder cache is never reset by saving: its key (`romm_setup`) covers what changes the folders;
+  choices/options pass `reuse=True` (no disk access at all). Excluded folders without a choice below
+  them are not read inside (`romm_stops` -> `stop`). The cache is stamped when a read ends.
   `skip_names` (default `["media"]`, fnmatch, case-insensitive) is applied while reading
   (`romm.skipped`), is part of the folder cache key, and goes into config.yml's exclude names.
 - Disk reads: RomM folder counts (`romm.folders_from_disk`) re-list only folders whose mtime changed,

@@ -514,9 +514,10 @@ def romm_saved():
 
 
 def romm_save(cur):
+    # The folder cache is NOT reset here: its key (romm_setup) holds everything that changes which
+    # folders are read, so a platform choice or an option reuses it instead of re-reading the disk.
     atomic_write(os.path.join(CONFIG_DIR, romm.BACKUP_FILE),
                  json.dumps(cur, ensure_ascii=False, indent=1, sort_keys=True))
-    _romm_cache["key"] = None
 
 
 def romm_links_dir(saved, sources):
@@ -587,11 +588,12 @@ def romm_setup(saved):
     return sources, links_dir, depths, skip, (tuple(sources), links_dir, tuple(sorted(depths.items())), skip)
 
 
-def romm_mapping(fresh=False, progress=None):
+def romm_mapping(fresh=False, progress=None, reuse=False):
     """-> (Mapping or None, saved settings, error). Folder counts are reused for 30 s; after that
     only folders whose date changed are listed again. fresh=True (Refresh button, new download
     folders) or an hour since the last full read lists every folder again - on some shares (e.g.
-    Unraid's, spread over several disks) a folder's date doesn't always change."""
+    Unraid's, spread over several disks) a folder's date doesn't always change. reuse=True (a
+    platform choice or an option: nothing on disk changed) takes the folder list as it is."""
     saved = romm_saved()
     sources, links_dir, depths, skip, key = romm_setup(saved)
     error = romm_check(sources, links_dir)
@@ -600,23 +602,38 @@ def romm_mapping(fresh=False, progress=None):
     with romm_read_lock:
         c = _romm_cache
         now = time.time()
-        full = fresh or c["key"] != key or now - c.get("full_at", 0) > FULL_READ_EVERY
-        if full or now - c["at"] > 30:
-            c.update(key=key, at=now, folders=romm.folders_from_roots(links_dir, sources, full=full, depths=depths,
-                                                                      progress=progress, skip=skip))
+        have = c["key"] == key and c.get("folders") is not None
+        full = fresh or not have or (now - c.get("full_at", 0) > FULL_READ_EVERY and not reuse)
+        if full or (now - c["at"] > 30 and not reuse):
+            folders = romm.folders_from_roots(links_dir, sources, full=full, depths=depths, progress=progress,
+                                              skip=skip, stop=romm_stops(saved))
+            # stamped when the read ends: on a big share it takes minutes, and a stamp from its start
+            # made the very next request re-check every folder while the page still waited
+            c.update(key=key, at=time.time(), folders=folders)
             if full:
-                c["full_at"] = now
+                c["full_at"] = c["at"]
         folders, roots = c["folders"]
     return romm.Mapping(folders, romm.options_from({"romm": saved}), links_dir, roots), saved, None
 
 
-def romm_full_read_due(saved, fresh=False):
+def romm_stops(saved):
+    """Folders you excluded, with no choice of yours below them: the read doesn't go inside them
+    (an exclude covers everything inside, so there's nothing to list - eXoDOS's thousands of game
+    folders are not read at all). Paths are relative to the links folder, like the choices."""
+    choices = saved.get("map") or {}
+    excluded = [p for p, a in choices.items() if a == "exclude"]
+    return {p for p in excluded if not any(k.startswith(p + "/") for k in choices)}
+
+
+def romm_full_read_due(saved, fresh=False, reuse=False):
     """Would romm_mapping read every folder again (slow on a big share)?"""
     sources, links_dir, _depths, _skip, key = romm_setup(saved)
     if romm_check(sources, links_dir):
         return False
     c = _romm_cache
-    return fresh or c["key"] != key or time.time() - c.get("full_at", 0) > FULL_READ_EVERY
+    if fresh or c["key"] != key or c.get("folders") is None:
+        return True
+    return not reuse and time.time() - c.get("full_at", 0) > FULL_READ_EVERY
 
 
 def romm_progress():
@@ -671,7 +688,7 @@ def romm_groups(m, rows):
     return sorted(out.values(), key=lambda g: g["path"].casefold())
 
 
-def romm_view(fresh=False):
+def romm_view(fresh=False, reuse=False):
     saved = romm_saved()
     opt = romm.options_from({"romm": saved})
     sources = saved.get("sources") or []
@@ -679,10 +696,10 @@ def romm_view(fresh=False):
             "links_dir": romm_links_dir(saved, sources),
             "options": {**{k: opt[k] for k in ("variants", "layout", "links_dir", "keep_links", "skip_names")},
                         "romm_folder": romm.Mapping({"": (0, 0)}, opt).romm_folder()}}
-    if ROMM_BACKGROUND and (romm_job_lock.locked() or romm_full_read_due(saved, fresh)):
+    if ROMM_BACKGROUND and (romm_job_lock.locked() or romm_full_read_due(saved, fresh, reuse)):
         start_romm_read(fresh=True)
         return {**base, "reading": romm_progress()}
-    m, saved, error = romm_mapping(fresh)
+    m, saved, error = romm_mapping(fresh, reuse=reuse)
     base["error"] = error
     if m is None:
         return {**base, "rows": [], "platforms": [], "firmware": [], "warnings": [], "summary":
@@ -896,7 +913,8 @@ def api_romm_options():
         if body.get("layout") in ("category", "folders"):
             cur["layout"] = body["layout"]
         romm_save(cur)
-    return jsonify(romm_view(fresh=any(k in body for k in ("sources", "depths", "skip_names"))))
+    folders = any(k in body for k in ("sources", "depths", "skip_names", "links_dir"))
+    return jsonify(romm_view(fresh=folders, reuse=not folders))
 
 
 @app.put("/api/romm/map")
@@ -916,7 +934,7 @@ def api_romm_map():
             mapping.pop(path, None)
         cur["map"] = mapping
         romm_save(cur)
-    return jsonify(romm_view())
+    return jsonify(romm_view(reuse=True))
 
 
 @app.post("/api/romm/links")
@@ -930,7 +948,7 @@ def api_romm_links():
         if not cur.get("keep_links") and not res["errors"]:
             cur["keep_links"] = True          # from now on kept up to date with every scan
             romm_save(cur)
-    return jsonify({**romm_view(), "applied": {**res, "text": text}})
+    return jsonify({**romm_view(reuse=True), "applied": {**res, "text": text}})
 
 
 @app.put("/api/sources")
