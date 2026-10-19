@@ -571,37 +571,96 @@ def on_host_folder(path):
 FULL_READ_EVERY = 3600     # s; between full reads only folders whose date changed are listed
 
 
-def romm_mapping(fresh=False):
+ROMM_BACKGROUND = True     # read the download folders in the background (tests turn it off)
+romm_read_lock = threading.Lock()   # one read of the download folders at a time
+romm_job_lock = threading.Lock()    # held while a background read runs
+_romm_read = {"error": None, "source": 0, "sources": 0, "path": "", "done": 0, "total": 0, "current": ""}
+
+
+def romm_setup(saved):
+    """-> (download folders, links folder, {folder: levels}, cache key)."""
+    sources = [p.rstrip("/") for p in saved.get("sources") or []]
+    links_dir = romm_links_dir(saved, sources)
+    stored = saved.get("depths") or {}
+    depths = {p: int(stored[p]) for p in sources if int(stored.get(p) or 0)}
+    return sources, links_dir, depths, (tuple(sources), links_dir, tuple(sorted(depths.items())))
+
+
+def romm_mapping(fresh=False, progress=None):
     """-> (Mapping or None, saved settings, error). Folder counts are reused for 30 s; after that
     only folders whose date changed are listed again. fresh=True (Refresh button, new download
     folders) or an hour since the last full read lists every folder again - on some shares (e.g.
     Unraid's, spread over several disks) a folder's date doesn't always change."""
     saved = romm_saved()
-    sources = [p.rstrip("/") for p in saved.get("sources") or []]
-    links_dir = romm_links_dir(saved, sources)
+    sources, links_dir, depths, key = romm_setup(saved)
     error = romm_check(sources, links_dir)
     if error:
         return None, saved, error
-    c = _romm_cache
-    key = (tuple(sources), links_dir)
-    now = time.time()
-    full = fresh or c["key"] != key or now - c.get("full_at", 0) > FULL_READ_EVERY
-    if full or now - c["at"] > 30:
-        c.update(key=key, at=now, folders=romm.folders_from_roots(links_dir, sources, full=full))
-        if full:
-            c["full_at"] = now
-    folders, roots = c["folders"]
+    with romm_read_lock:
+        c = _romm_cache
+        now = time.time()
+        full = fresh or c["key"] != key or now - c.get("full_at", 0) > FULL_READ_EVERY
+        if full or now - c["at"] > 30:
+            c.update(key=key, at=now, folders=romm.folders_from_roots(links_dir, sources, full=full,
+                                                                      depths=depths, progress=progress))
+            if full:
+                c["full_at"] = now
+        folders, roots = c["folders"]
     return romm.Mapping(folders, romm.options_from({"romm": saved}), links_dir, roots), saved, None
 
 
+def romm_full_read_due(saved, fresh=False):
+    """Would romm_mapping read every folder again (slow on a big share)?"""
+    sources, links_dir, _depths, key = romm_setup(saved)
+    if romm_check(sources, links_dir):
+        return False
+    c = _romm_cache
+    return fresh or c["key"] != key or time.time() - c.get("full_at", 0) > FULL_READ_EVERY
+
+
+def romm_progress():
+    return {**_romm_read, "running": romm_job_lock.locked()}
+
+
+def start_romm_read(fresh=True):
+    """Read every download folder in a background thread; the page follows /api/romm/progress.
+    False if a read is already running."""
+    if not romm_job_lock.acquire(blocking=False):
+        return False
+    sources = [p.rstrip("/") for p in romm_saved().get("sources") or []]
+    _romm_read.update(error=None, source=0, sources=len(sources), path=sources[0] if sources else "",
+                      done=0, total=0, current="")
+
+    def progress(i, n, done, total, current):
+        _romm_read.update(source=i, sources=n, path=sources[i] if i < len(sources) else "",
+                          done=done, total=total, current=current)
+
+    def worker():
+        try:
+            romm_mapping(fresh=fresh, progress=progress)
+        except Exception as e:  # noqa: BLE001 - shown on the page
+            _romm_read["error"] = str(e)
+            log(f"RomM: reading the download folders failed: {e}")
+        finally:
+            romm_job_lock.release()
+
+    threading.Thread(target=worker, daemon=True).start()
+    return True
+
+
 def romm_view(fresh=False):
-    m, saved, error = romm_mapping(fresh)
+    saved = romm_saved()
     opt = romm.options_from({"romm": saved})
     sources = saved.get("sources") or []
-    base = {"sources": sources, "error": error,
+    base = {"sources": sources, "depths": romm_setup(saved)[2], "error": None,
             "links_dir": romm_links_dir(saved, sources),
             "options": {**{k: opt[k] for k in ("variants", "layout", "links_dir", "keep_links")},
                         "romm_folder": romm.Mapping({"": (0, 0)}, opt).romm_folder()}}
+    if ROMM_BACKGROUND and (romm_job_lock.locked() or romm_full_read_due(saved, fresh)):
+        start_romm_read(fresh=True)
+        return {**base, "reading": romm_progress()}
+    m, saved, error = romm_mapping(fresh)
+    base["error"] = error
     if m is None:
         return {**base, "rows": [], "platforms": [], "firmware": [], "warnings": [], "summary":
                 {"platforms": 0, "firmware": 0, "files": 0}, "links": {}, "outputs": {"compose": "", "config": ""}}
@@ -745,6 +804,12 @@ def api_romm():
     return jsonify(romm_view(fresh=request.args.get("fresh") == "1"))
 
 
+@app.get("/api/romm/progress")
+def api_romm_progress():
+    """How far the background read of the download folders is (the page polls it)."""
+    return jsonify(romm_progress())
+
+
 @app.get("/api/romm/platforms")
 def api_romm_platforms():
     """RomM's platform list. It only changes with a new version, so the page loads it once."""
@@ -774,13 +839,27 @@ def api_romm_options():
                 if v not in sources:
                     sources.append(v)
             cur["sources"] = sources
+        if "depths" in body:
+            depths = {}
+            for k, v in (body["depths"] or {}).items():
+                try:
+                    n = int(v or 0)
+                except (TypeError, ValueError):
+                    n = -1
+                if not 0 <= n <= 6:
+                    return jsonify({"error": "Levels must be All or a number from 1 to 6."}), 400
+                if n:
+                    depths[str(k).strip().rstrip("/")] = n
+            cur["depths"] = depths
+        if cur.get("depths"):                 # only folders still in the list
+            cur["depths"] = {k: v for k, v in cur["depths"].items() if k in (cur.get("sources") or [])}
         for k in ("variants", "keep_links"):
             if k in body:
                 cur[k] = bool(body[k])
         if body.get("layout") in ("category", "folders"):
             cur["layout"] = body["layout"]
         romm_save(cur)
-    return jsonify(romm_view(fresh="sources" in body))
+    return jsonify(romm_view(fresh="sources" in body or "depths" in body))
 
 
 @app.put("/api/romm/map")

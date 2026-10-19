@@ -93,6 +93,10 @@ Open the **RomM** tab (or go to `http://YOUR-SERVER:8085/#romm`).
 
 1. **Download folders** - add the folders RomM should see, in order of preference. The table lists
    every folder with files and the RomM platform it becomes. Most are filled in already.
+   Reading a big folder takes a while: a progress bar shows how far it is.
+   For a folder with one folder per system (like a `roms` folder), choose **1 level** next to it:
+   you get one row per system instead of every folder inside them, and it reads much faster.
+   Keep **All levels** for a lolroms download folder.
 2. **Check the platforms** - pick another platform from a folder's dropdown, or **exclude** to leave
    it (and everything inside it) out of RomM. Each choice is saved right away.
 3. **Overlaps** - if two download folders give the same platform, the higher one in the list is

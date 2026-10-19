@@ -52,6 +52,7 @@ class Env:
         for mod in ("server", "romm", "links", "version"):
             sys.modules.pop(mod, None)
         server = importlib.import_module("server")
+        server.ROMM_BACKGROUND = False      # answer with the RomM data straight away (see test_romm)
         return server, server.app.test_client()
 
     def link(self, *parts):

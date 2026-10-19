@@ -173,9 +173,16 @@ its roms folder. The **RomM** tab maps your download folders to that without mov
 the other tab.
 
 - **Download folders**: a list in priority order (add, remove, move up/down). Each is read from
-  disk completely (counts are reused for 30 s; after that only folders whose date changed are
+  disk (counts are reused for 30 s; after that only folders whose date changed are
   listed again, with a full read every hour and on **Refresh**, because on shares spread over
-  several disks a folder's date doesn't always change); rows start with the folder's name. Folders get a platform from built-in rules
+  several disks a folder's date doesn't always change); rows start with the folder's name.
+  A full read runs in the background with a progress bar (folder N of M, how many of the folders
+  directly inside it are done); the folder controls wait until it's finished.
+- **Levels** (per download folder): how deep the list goes. **All levels** (the default) lists every
+  folder, which lolroms' nested tree needs. **1 level** lists only the folders directly inside - one
+  row per system for a folder like `/path/to/roms` - and doesn't read any deeper, which is much
+  faster on a big share. On the last level a folder's count includes its subfolders, so a system
+  that keeps each game in its own folder still counts as having games. Folders get a platform from built-in rules
   for lolroms' folder tree (e.g. `Nintendo/Super Famicom` -> `snes`), or automatically when a folder
   right inside a download folder is named exactly like a RomM platform (`snes`). Subfolders join
   their parent's platform (variants, translations), except raw dumps and similar (skipped) and
@@ -212,7 +219,7 @@ All in the config folder (`/config` in Docker):
 | `rom-mapper-mapping.json` | The mapping: frontends (name, media toggle, media location) and rows (folder, one name per frontend) |
 | `rom-mapper-mapping.json.bak` | The previous version, written on every save |
 | `rom-mapper-state.json` | Source folders, schedule settings (`scan_every` / `scan_unit`, `sync_every` / `sync_unit`; units `minutes`, `hours`, `days`), last scan and last resync |
-| `romm-mapper.json` | RomM: download folders (`sources`), links folder, options, your choices (`map`, by `<download folder>/<path>`) |
+| `romm-mapper.json` | RomM: download folders (`sources`), levels per folder (`depths`, only those not set to all), links folder, options, your choices (`map`, by `<download folder>/<path>`) |
 
 Files are written to a temporary file first and then swapped in, so a crash never leaves half a
 file. Environment variables: `CONFIG_DIR` (default `/config`), `SRC_BASE` (first source folder(s),
@@ -254,7 +261,8 @@ JSON throughout; the page uses nothing else.
 | `PUT /api/settings` | Schedule settings |
 | `GET /api/activity` | Recent events |
 | `GET /api/romm/platforms` | RomM's platform list (`slugs`), loaded once by the page |
-| `GET /api/romm` · `PUT /api/romm/options` · `PUT /api/romm/map {path, action}` · `POST /api/romm/links` | RomM dialog data, options/download folders, a folder's choice, create/update the platform links |
+| `GET /api/romm` · `PUT /api/romm/options` · `PUT /api/romm/map {path, action}` · `POST /api/romm/links` | RomM dialog data, options/download folders/`depths` (`{folder: 1-6}`, 0 = all), a folder's choice, create/update the platform links. When the folders need a full read, `GET /api/romm` and `PUT /api/romm/options` start it in the background and answer `{reading: {...}}` instead of the rows |
+| `GET /api/romm/progress` | The background read: `running`, `source` / `sources` (folder N of M), `path`, `done` / `total` (folders directly inside it), `current`, `error` |
 
 ---
 

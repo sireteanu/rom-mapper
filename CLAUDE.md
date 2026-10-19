@@ -27,6 +27,9 @@ Docker (Unraid). See README.md for the full reference.
   `tests/test_upgrades.py` (rows without labels, the minutes/hours schedule, one-folder and Rom
   Sync `romm-mapper.json`). There is no CSV import or export (removed in 1.0.3) - don't add one
   back without asking.
+- RomM full reads run in the background (`start_romm_read`, `/api/romm/progress`); `romm_view` answers
+  `{reading}` meanwhile. Tests set `server.ROMM_BACKGROUND = False` (conftest) to get rows directly.
+  Per-download-folder levels are `depths` in `romm-mapper.json` (missing = all levels).
 - Disk reads: RomM folder counts (`romm.folders_from_disk`) re-list only folders whose mtime changed,
   with a full read every hour and on Refresh (Unraid shares don't always update a folder's date);
   the page doesn't refresh while its tab is hidden; RomM's platform list comes from

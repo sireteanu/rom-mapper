@@ -15,7 +15,14 @@ release. Newest first.
   folder mounted for your ROMs, mount a second folder for RomM (the folder that holds the download
   folders), at the same path. Both compose files have it ready to switch on.
 
+- **Levels for RomM download folders.** Choose **1 level** for a folder with one folder per
+  system: the RomM tab then shows one row per system instead of every folder inside them, and reads
+  much faster. **All levels** (needed for lolroms) stays the default.
+
 ### Improved
+- **A progress bar while the RomM tab reads your folders.** Adding, removing or reordering a
+  download folder, **Refresh** and opening the tab now read in the background and show how far
+  they are, instead of the page seeming to hang.
 - **RomM won't lose its links to a wrong mount.** In Docker, the RomM tab refuses to make platform
   links in a folder that isn't mounted from the host, and says what to mount instead.
 - The schedule card says when the next scan and resync run in days for long intervals.

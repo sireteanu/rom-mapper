@@ -153,3 +153,74 @@ def test_platform_list_is_loaded_once_not_with_every_refresh(env):
     slugs = c.get("/api/romm/platforms").get_json()["slugs"]
     assert "snes" in {x["slug"] for x in slugs} and len(slugs) > 100
     assert set(slugs[0]) == {"slug", "name", "family", "kind"}
+
+
+def test_levels_list_only_the_top_folders_and_count_what_is_below(env):
+    """A RomM-style collection with one folder per platform: levels=1 gives one row per platform,
+    and games kept in subfolders (one per multi-disc game) still count."""
+    col = env.path("roms", "collection")
+    make_dirs(col, "snes", "snes/media/box2d", "psx/Game A", "psx/Game B", "empty", files=2)
+    for d in ("empty",):
+        for f in os.listdir(os.path.join(col, d)):
+            os.remove(os.path.join(col, d, f))
+    romm = env.start()[0].romm
+    every = romm.folders_from_disk(col)
+    assert "snes/media/box2d" in every and every["psx"] == (0, 0)
+    top = romm.folders_from_disk(col, depth=1)
+    assert set(top) == {"", "snes", "psx", "empty"}
+    assert top["snes"] == (3, 3), "2 files + the media folder"
+    assert top["psx"] == (2, 2), "two game folders"
+    assert top["empty"] == (0, 0)
+    assert romm.folders_from_disk(col, full=False, depth=1) == top, "the quick re-read agrees"
+    assert romm.folders_from_disk(col, full=False) == every, "and doesn't mix up the two"
+
+
+def test_progress_is_reported_per_top_folder(env):
+    col = env.path("roms", "collection")
+    make_dirs(col, "a/x", "b", "c")
+    romm = env.start()[0].romm
+    seen = []
+    romm.folders_from_disk(col, progress=lambda done, total, cur: seen.append((done, total, cur)))
+    assert seen == [(0, 3, "a"), (1, 3, "b"), (2, 3, "c"), (3, 3, "")]
+    seen.clear()
+    romm.folders_from_roots(env.path("roms"), [col, col], progress=lambda *a: seen.append(a))
+    assert seen[0] == (0, 2, 0, 3, "a") and seen[-1] == (1, 2, 3, 3, "")
+
+
+def test_levels_setting_in_the_romm_tab(env):
+    server, c, d, lol, rom = setup(env)
+    make_dirs(rom, "psx/Game A")
+    assert "collection/psx/Game A" in rows(c.get("/api/romm?fresh=1").get_json())
+    d = c.put("/api/romm/options", json={"depths": {rom: 1}}).get_json()
+    assert d["depths"] == {rom: 1}
+    paths = {r["path"] for r in d["rows"]}
+    assert "collection/psx" in paths and "collection/psx/Game A" not in paths
+    assert "lolroms/Nintendo/Super Famicom/T-En" in paths, "other folders keep every level"
+    assert json.loads(env.read_config("romm-mapper.json"))["depths"] == {rom: 1}
+    assert c.put("/api/romm/options", json={"depths": {rom: 9}}).status_code == 400
+    d = c.put("/api/romm/options", json={"sources": [lol]}).get_json()
+    assert d["depths"] == {}, "a removed folder loses its setting"
+    assert json.loads(env.read_config("romm-mapper.json")).get("depths", {}) == {}
+
+
+def test_folders_are_read_in_the_background_with_progress(env, monkeypatch):
+    server, c, d, lol, rom = setup(env)
+    monkeypatch.setattr(server, "ROMM_BACKGROUND", True)
+    gate = server.threading.Event()
+    real = server.romm.folders_from_roots
+
+    def slow(*a, **k):
+        gate.wait(5)
+        return real(*a, **k)
+    monkeypatch.setattr(server.romm, "folders_from_roots", slow)
+    d = c.put("/api/romm/options", json={"sources": [rom, lol]}).get_json()
+    assert d["reading"]["running"] is True and "rows" not in d
+    assert c.get("/api/romm").get_json()["reading"]["running"] is True, "the page waits, nothing else starts"
+    assert c.get("/api/romm/progress").get_json()["sources"] == 2
+    gate.set()
+    for _ in range(100):
+        if not c.get("/api/romm/progress").get_json()["running"]:
+            break
+        server.time.sleep(0.05)
+    d = c.get("/api/romm").get_json()
+    assert "reading" not in d and d["rows"] and d["sources"] == [rom, lol]

@@ -621,18 +621,24 @@ def describe_links(res: dict) -> str:
 IGNORED_FILES = {"thumbs.db", "desktop.ini"}
 
 
-def folders_from_roots(links_dir: str, sources: list, full: bool = True) -> tuple:
+def folders_from_roots(links_dir: str, sources: list, full: bool = True, depths: Optional[dict] = None,
+                       progress=None) -> tuple:
     """Read every download folder -> ({path relative to links_dir: (files, files)}, [roots]).
-    Folders above a root (e.g. "sets" for links_dir/sets/collection) are added with no files."""
+    Folders above a root (e.g. "sets" for links_dir/sets/collection) are added with no files.
+    depths: {download folder: levels to list} (missing or 0 = all). progress(i, n, done, total,
+    current) is called while folder i of n is read: done of the total folders directly inside it
+    are finished, and current is being read."""
     out = {"": (0, 0)}
     roots = []
-    for src in sources:
+    depths = depths or {}
+    for i, src in enumerate(sources):
         root = os.path.relpath(os.path.abspath(src), os.path.abspath(links_dir)).replace(os.sep, "/")
         roots.append(root)
         parts = root.split("/")
-        for i in range(1, len(parts)):
-            out.setdefault("/".join(parts[:i]), (0, 0))
-        for p, n in folders_from_disk(src, full).items():
+        for j in range(1, len(parts)):
+            out.setdefault("/".join(parts[:j]), (0, 0))
+        step = (lambda done, total, cur, i=i: progress(i, len(sources), done, total, cur)) if progress else None
+        for p, n in folders_from_disk(src, full, depth=int(depths.get(src) or 0), progress=step).items():
             out[root + ("/" + p if p else "")] = n
     return out, roots
 
@@ -643,21 +649,28 @@ def folders_from_roots(links_dir: str, sources: list, full: bool = True) -> tupl
 _dir_cache: dict = {}
 
 
-def folders_from_disk(source: str, full: bool = True) -> dict:
+def folders_from_disk(source: str, full: bool = True, depth: int = 0, progress=None) -> dict:
     """{folder path relative to source: (files in it, files in it)} for every folder under source.
     Rom Sync's catalog knew what was listed on the site; here the disk is the truth, so both
     numbers are the files actually there. Dot-files (Rom Sync's manifest), unfinished downloads
     (.part) and folder links are left out. full=False lists only folders whose date changed since
-    the last read (one stat per folder instead of reading every folder)."""
+    the last read (one stat per folder instead of reading every folder).
+
+    depth > 0 lists only that many levels (1 = the folders directly inside source). A folder on the
+    last level isn't read further; its subfolders count as items, so a platform folder that keeps
+    its games in subfolders (one per multi-disc game) isn't taken for empty. progress(done, total,
+    current) is called before each folder directly inside source is read, and once at the end."""
     out = {}
     source = os.path.abspath(source)
 
-    def visit(path, rel):
+    def visit(path, rel, level):
+        last = bool(depth) and level >= depth
         try:
             mtime = os.stat(path).st_mtime_ns
         except OSError:
             return
-        hit = None if full else _dir_cache.get(path)
+        key = (path, last)
+        hit = None if full else _dir_cache.get(key)
         if hit and hit[0] == mtime:
             _, n, subs = hit
         else:
@@ -680,12 +693,18 @@ def folders_from_disk(source: str, full: bool = True) -> dict:
             except OSError:
                 return
             subs.sort()
-            _dir_cache[path] = (mtime, n, subs)
+            if last:                                # deeper folders aren't listed: count them
+                n, subs = n + len(subs), []
+            _dir_cache[key] = (mtime, n, subs)
         out[rel] = (n, n)
-        for d in subs:
-            visit(os.path.join(path, d), f"{rel}/{d}" if rel else d)
+        for i, d in enumerate(subs):
+            if level == 0 and progress:
+                progress(i, len(subs), d)
+            visit(os.path.join(path, d), f"{rel}/{d}" if rel else d, level + 1)
+        if level == 0 and progress:
+            progress(len(subs), len(subs), "")
 
-    visit(source, "")
+    visit(source, "", 0)
     out.setdefault("", (0, 0))
     return out
 

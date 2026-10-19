@@ -166,7 +166,20 @@
   .romm .src code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .romm .src .meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
   .romm .src button { padding: 2px 8px; }
+  .romm .src select, .romm .srcadd select { width: auto; flex: none; padding: 1px 4px; font-size: 12px; }
+  @media (max-width: 640px) {
+    .romm .src { flex-wrap: wrap; }
+    .romm .src code { flex-basis: calc(100% - 30px); }
+    .romm .src .meta { margin-right: auto; }
+  }
   .romm .srcadd { display: flex; gap: 6px; }
+  .romm .progress { border: 1px solid var(--accent); border-radius: 6px; padding: 8px 10px; margin: 6px 0; background: var(--new-bg); }
+  .romm .progress .ptext { font-size: 13px; margin-bottom: 6px; overflow-wrap: anywhere; }
+  .romm .progress .pbar { height: 8px; border-radius: 999px; background: var(--border); overflow: hidden; }
+  .romm .progress .pfill { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  .romm .progress .pbar.wait .pfill { width: 30% !important; animation: pslide 1.2s ease-in-out infinite; }
+  @keyframes pslide { from { margin-left: -30%; } to { margin-left: 100%; } }
+  @media (prefers-reduced-motion: reduce) { .romm .progress .pfill { transition: none; } .romm .progress .pbar.wait .pfill { animation: none; } }
   .romm .srcadd input { flex: 1; }
   .romm tr.root td { font-weight: 600; background: var(--bg); }
   .romm tr.conflict td.p { color: var(--warn); }
@@ -251,9 +264,17 @@
     <code>config.yml</code>, restart RomM and scan its library.</p>
   <div class="field"><span>Download folders</span>
     <div id="rSources" class="sources"></div>
-    <div class="srcadd"><input type="text" id="rSourceNew" placeholder="/path/to/downloads"><button id="rSourceAdd" type="button">Add folder</button></div>
+    <div class="srcadd"><input type="text" id="rSourceNew" placeholder="/path/to/downloads">
+      <select id="rSourceDepth" aria-label="Folder levels to list for the new folder" title="How many folder levels to list"><option value="0">All levels</option><option value="1">1 level</option><option value="2">2 levels</option><option value="3">3 levels</option><option value="4">4 levels</option><option value="5">5 levels</option><option value="6">6 levels</option></select>
+      <button id="rSourceAdd" type="button">Add folder</button></div>
+    <div id="rProgress" class="progress" role="status" hidden>
+      <div class="ptext"></div>
+      <div class="pbar" role="progressbar" aria-label="Reading the download folders" aria-valuemin="0" aria-valuemax="100"><div class="pfill"></div></div>
+    </div>
     <small>Each folder is mapped into RomM (for example a lolroms download folder and a RomM-style collection).
       When two give the same platform, the one <b>higher in the list</b> is used - exclude the other, or change the order.
+      <b>Levels</b>: how deep the list goes. <b>1 level</b> suits a folder with one folder per system (everything inside a
+      system goes with it and isn't read, which is much faster); <b>All levels</b> is needed for lolroms' nested folders.
       Folders must be mounted into this container at the same path.</small></div>
   <p id="rError" class="bad" hidden></p>
   <div class="box">
@@ -281,7 +302,7 @@
       <div class="bar"><h3 id="rCount">Folders</h3>
         <select id="rFilter" aria-label="Show"></select>
         </div>
-      <div class="wrap"><table><thead><tr><th>Folder</th><th>Files</th><th>RomM platform</th><th>Result</th></tr></thead>
+      <div class="wrap"><table><thead><tr><th>Folder</th><th title="Files directly in the folder. For a download folder set to fewer levels, the folders on its last level also count their subfolders.">Files</th><th>RomM platform</th><th>Result</th></tr></thead>
         <tbody id="rBody"></tbody></table></div>
       <p class="hint">Pick the RomM platform for a folder, or <b>exclude</b> to leave it out of RomM. A subfolder with the
         same platform as its parent (like T-En under snes) is part of that platform. Every choice is saved right away.</p>
@@ -751,15 +772,21 @@ $("srcSave").onclick = async () => {
     R.sources.forEach((p, i) => {
       const div = document.createElement("div"); div.className = "src";
       div.innerHTML = `<span class="pos"></span><code></code><span class="meta"></span>
+        <select data-depth title="How many folder levels to list"><option value="0">All levels</option><option value="1">1 level</option><option value="2">2 levels</option><option value="3">3 levels</option><option value="4">4 levels</option><option value="5">5 levels</option><option value="6">6 levels</option></select>
         <button type="button" data-up title="Move up (preferred when two folders give the same platform)">↑</button>
         <button type="button" data-down title="Move down">↓</button>
         <button type="button" data-del title="Stop mapping this folder (nothing is deleted)">✕</button>`;
       q(".pos", div).textContent = i + 1;
       q("code", div).textContent = p; q("code", div).title = p;
       const root = roots[i];
-      q(".meta", div).textContent = root !== undefined ? `${num(files[root] || 0)} files` : "";
+      q(".meta", div).textContent = root !== undefined ? `${num(files[root] || 0)} ${(R.depths || {})[p] ? "items" : "files"}` : "";
+      const lv = q("[data-depth]", div);
+      lv.value = String((R.depths || {})[p] || 0);
+      lv.setAttribute("aria-label", `Folder levels to list for ${p}`);
+      lv.onchange = () => options({ depths: { ...(R.depths || {}), [p]: +lv.value } });
       q("[data-up]", div).disabled = i === 0;
       q("[data-down]", div).disabled = i === R.sources.length - 1;
+      if (reading) div.querySelectorAll("button, select").forEach(b => b.disabled = true);
       const move = (to) => { const s = [...R.sources]; s.splice(i, 1); s.splice(to, 0, p); options({ sources: s }); };
       q("[data-up]", div).onclick = () => move(i - 1);
       q("[data-down]", div).onclick = () => move(i + 1);
@@ -826,7 +853,7 @@ $("srcSave").onclick = async () => {
       : `Links go in ${d.links_dir}, next to the download folders. Map ${d.links_dir} as RomM's roms folder.`;
     document.querySelectorAll("#paneRomm .tab").forEach(t => t.classList.toggle("on", t.dataset.out === tab));
     q("#paneRomm .ref-btn").classList.toggle("on", isList);
-    $("rApply").disabled = !!d.error;
+    $("rApply").disabled = !!d.error || reading;
   }
   function renderList() {
     const f = $("rListFind").value.trim().toLowerCase();
@@ -845,7 +872,57 @@ $("srcSave").onclick = async () => {
     }
   }
   let SLUGS = [];                      // RomM's platform list, loaded once (/api/romm/platforms)
+  // ---- reading the download folders in the background (adding/removing one, Refresh, first open)
+  let reading = false;
+  const EMPTY = { rows: [], platforms: [], firmware: [], warnings: [], conflicts: [], links: {},
+                  summary: { platforms: 0, firmware: 0, files: 0 }, outputs: { compose: "", config: "" } };
+  function showProgress(p) {
+    const box = $("rProgress"), bar = q(".pbar", box);
+    box.hidden = !p;
+    if (!p) return;
+    const n = Math.max(1, p.sources || 1);
+    const pct = Math.round(100 * Math.min(1, (p.source + (p.total ? p.done / p.total : 0)) / n));
+    const where = p.path ? p.path : "the download folders";
+    const which = n > 1 ? ` (folder ${p.source + 1} of ${n})` : "";
+    const count = p.total ? `${num(p.done)} of ${num(p.total)} folders` : "starting…";
+    q(".ptext", box).textContent = `Reading ${where}${which}: ${count}${p.current ? ` · ${p.current}` : ""}`;
+    bar.classList.toggle("wait", !p.total);
+    bar.setAttribute("aria-valuenow", String(pct));
+    q(".pfill", bar).style.width = pct + "%";
+  }
+  function setReading(on) {
+    reading = on;
+    ["rSourceAdd", "rSourceNew", "rSourceDepth", "rRefresh", "rApply"].forEach(id => $(id).disabled = on || (id === "rApply" && !!(R && R.error)));
+    document.querySelectorAll("#rSources button, #rSources select").forEach(b => b.disabled = on);
+    if (!on) showProgress(null);
+  }
+  async function follow(d) {
+    // keep the table that's there (or an empty one) while the folders are read
+    R = R ? { ...R, sources: d.sources, depths: d.depths, options: d.options, links_dir: d.links_dir }
+          : { ...EMPTY, ...d };
+    R.slugs = SLUGS;
+    if (reading) return;
+    setReading(true); render(); showProgress(d.reading);
+    try {
+      for (;;) {
+        await new Promise(r => setTimeout(r, 400));
+        const p = await api("GET", "/api/romm/progress");
+        showProgress(p);
+        if (p.running) continue;
+        if (p.error) throw new Error(p.error);
+        const next = await api("GET", "/api/romm");
+        if (next.reading) {          // the list changed meanwhile: read it again
+          R = { ...R, sources: next.sources, depths: next.depths }; renderSources(); showProgress(next.reading); continue;
+        }
+        setReading(false); loadR(next); toast("Download folders read.");
+        return;
+      }
+    } catch (e) {
+      setReading(false); render(); alert("Could not read the download folders: " + e.message);
+    }
+  }
   function loadR(d) {
+    if (d.reading) { follow(d); return; }
     R = d;
     R.slugs = SLUGS;
     $("rRommFolder").value = d.options.romm_folder || "";
@@ -871,7 +948,8 @@ $("srcSave").onclick = async () => {
     const v = $("rSourceNew").value.trim();
     if (!v) return;
     $("rSourceNew").value = "";
-    options({ sources: [...R.sources, v] });
+    const n = +$("rSourceDepth").value;
+    options({ sources: [...R.sources, v], depths: { ...(R.depths || {}), ...(n ? { [v]: n } : {}) } });
   };
   $("rSourceAdd").onclick = addSource;
   $("rSourceNew").addEventListener("keydown", (e) => { if (e.key === "Enter") addSource(); });
@@ -883,7 +961,9 @@ $("srcSave").onclick = async () => {
       loadR(await api("GET", "/api/romm"));
     } catch (e) { $("rOut").textContent = e.message; }
   };
-  $("rRefresh").onclick = async () => { loadR(await api("GET", "/api/romm?fresh=1")); toast("Folders read again."); };
+  $("rRefresh").onclick = async () => {
+    try { loadR(await api("GET", "/api/romm?fresh=1")); } catch (e) { alert(e.message); }
+  };
   $("rApply").onclick = async () => {
     const out = $("rApplied"); $("rApply").disabled = true;
     try {
