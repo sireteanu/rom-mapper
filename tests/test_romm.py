@@ -101,6 +101,22 @@ def test_problems_are_explained(env):
     assert c.put("/api/romm/options", json={"sources": ["relative"]}).status_code == 400
 
 
+def test_links_folder_outside_the_mounted_folders_is_refused_in_docker(env, monkeypatch):
+    """A second mount for RomM pointed at the download folder itself: the links folder (its parent)
+    is then on the container's own disk, where links would be lost."""
+    server, c, d, lol, rom = setup(env)
+    assert c.get("/api/romm").get_json()["error"] is None
+    monkeypatch.setattr(server, "IN_DOCKER", True)
+    mounted = {lol, rom}                        # only the download folders themselves
+    monkeypatch.setattr(server.os.path, "ismount", lambda p: p in mounted or os.path.dirname(p) == p)
+    d = c.get("/api/romm?fresh=1").get_json()
+    assert d["links_dir"] == env.path("roms")
+    assert "not inside a folder mounted into the container" in d["error"]
+    assert c.post("/api/romm/links").status_code == 400, "no links are made"
+    mounted.add(env.path("roms"))               # the folder that holds the download folders
+    assert c.get("/api/romm?fresh=1").get_json()["error"] is None
+
+
 def test_settings_file_is_written_safely(env):
     server, c, d, lol, rom = setup(env)
     c.put("/api/romm/map", json={"path": "collection/psx", "action": "exclude"})

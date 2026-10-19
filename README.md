@@ -41,7 +41,7 @@ schedule. The page has two tabs of equal standing: **Frontend links** (the mappi
 | Frontends | Add or remove columns. Each frontend can also link every system's `media/` folder into a sub-folder (default `MEDIA_FULL`). |
 | Links | **Resync all** makes the mapping folder match the mapping: missing links are made, wrong ones corrected, unused ones removed - nothing else is touched, and frontends never see an empty folder. |
 | Status | Rows are marked *New* (on disk, not mapped yet), *Unmapped*, *Missing* (mapped, gone from disk). Filter by status, search, remove missing rows. Duplicate names for one frontend are highlighted (the first row gets the link). |
-| Schedule | Scan every N minutes (optionally adding new folders automatically) and resync every N hours. |
+| Schedule | Scan and resync each on their own interval, in minutes, hours or days (scans can add new folders automatically). |
 | Import / export | Download the mapping as a CSV that lists **every** folder found (ready to fill in, e.g. in a spreadsheet) and load one back - merged into the grid or replacing it. |
 | RomM | Maps one or more download folders to RomM platforms: platform links in one folder, a generated `config.yml`, per-folder choices, overlap handling. |
 | Storage | Everything is stored by the app in its config folder (JSON); no files to edit by hand. |
@@ -56,6 +56,14 @@ ROM Mapper needs **one** folder mounted at the **same path** inside the containe
 containing everything it uses: your source folders, the mapping folder and RomM's download
 folders. Pick a folder high enough to cover them all (on Unraid, the user-shares folder covers every
 share). Folders are then chosen in the web page - adding one never needs another mapping.
+
+**RomM in another place?** If RomM's download folders aren't inside that folder, mount a **second**
+folder for RomM, also at the same path: the folder that **holds** the download folders (for
+`/path/to/downloads/lolroms`, mount `/path/to/downloads`), because RomM's platform links are made
+next to the download folders. In Docker the RomM tab refuses to make links in a folder that isn't
+mounted from the host, so a wrong mount can't lose them. Unraid: uncomment the RomM line in
+[`unraid/docker-compose.yml`](unraid/docker-compose.yml). Docker Compose: set `ROMM_ROOT` and
+`COMPOSE_FILE` in `.env` (see [`docker-compose.romm.yml`](docker-compose.romm.yml)).
 
 **Unraid (Compose Manager):** Docker > Compose > Add New Stack `rom-mapper` > Edit Stack, paste
 [`unraid/docker-compose.yml`](unraid/docker-compose.yml), set the paths, then **Compose Up**. It
@@ -79,6 +87,7 @@ docker compose up -d --build
 | `ROMS_PATH` | First source folder, used until you set the list in the page |
 | `MAPPING_PATH` | The mapping folder: one sub-folder of links per frontend |
 | `ROMM_SOURCE` | Optional: RomM download folders (`;`-separated) until set in the page |
+| `ROMM_ROOT` | Optional: a second folder for RomM, mounted at the same path, when its download folders aren't inside `EMULATION_ROOT` (needs `COMPOSE_FILE=docker-compose.yml:docker-compose.romm.yml`) |
 | `PUID` / `PGID` | User/group the container runs as (Unraid: 99/100) |
 | `WEBUI_PORT` | Port of the web page (default 8085) |
 | `TZ` | Time zone for the schedule |
@@ -204,7 +213,7 @@ All in the config folder (`/config` in Docker):
 |---|---|
 | `rom-mapper-mapping.json` | The mapping: frontends (name, media toggle, media location) and rows (folder, one name per frontend) |
 | `rom-mapper-mapping.json.bak` | The previous version, written on every save |
-| `rom-mapper-state.json` | Source folders, schedule settings, last scan and last resync |
+| `rom-mapper-state.json` | Source folders, schedule settings (`scan_every` / `scan_unit`, `sync_every` / `sync_unit`; units `minutes`, `hours`, `days`), last scan and last resync |
 | `romm-mapper.json` | RomM: download folders (`sources`), links folder, options, your choices (`map`, by `<download folder>/<path>`) |
 
 Files are written to a temporary file first and then swapped in, so a crash never leaves half a
@@ -237,6 +246,9 @@ Older files keep working; the tests in `tests/test_upgrades.py` check every case
   names) belong to the first source folder, so every link stays where it was.
 - **Rows without a source name** keep pointing at the first source folder, even after the list is
   reordered (they get the name written in front when the order changes).
+- **Schedule in minutes and hours** (before 1.0.3: `scan_interval_minutes`, `sync_interval_hours`):
+  converted to a number and a unit, in the largest unit that fits (60 minutes -> 1 hour, 24 hours ->
+  1 day, 2.5 hours -> 150 minutes). Same intervals as before.
 - **`romm-mapper.json` with one folder** (`source`) or from Rom Sync (no folder list, choices
   without a folder name): converted to the folder list; choices get the first folder's name in
   front; a relative links folder is dropped.

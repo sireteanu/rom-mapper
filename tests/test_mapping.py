@@ -170,10 +170,46 @@ def test_import_reads_excel_style_csv_and_reports_problems(env):
 
 def test_settings_and_schedule_validation(env):
     server, c = env.start()
-    r = c.put("/api/settings", json={"scan_enabled": True, "auto_add_new": False, "sync_enabled": True,
-                                     "scan_interval_minutes": "15", "sync_interval_hours": "2.5"})
-    assert r.get_json()["settings"]["sync_interval_hours"] == 2.5
-    assert c.put("/api/settings", json={"scan_interval_minutes": "soon"}).status_code == 400
+    good = {"scan_enabled": True, "auto_add_new": False, "sync_enabled": True,
+            "scan_every": "15", "scan_unit": "minutes", "sync_every": "3", "sync_unit": "days"}
+    s = c.put("/api/settings", json=good).get_json()["settings"]
+    assert (s["scan_every"], s["scan_unit"], s["sync_every"], s["sync_unit"]) == (15, "minutes", 3, "days")
+    assert server.interval_seconds(s, "scan") == 15 * 60
+    assert server.interval_seconds(s, "sync") == 3 * 86400
+    assert server.load_state()["settings"]["sync_unit"] == "days", "saved"
+    for bad in ({"scan_every": "soon"}, {"scan_unit": "weeks"}, {"scan_every": "1.5"},
+                {"sync_every": "2", "sync_unit": "minutes"},      # shorter than 5 minutes
+                {"sync_every": "400", "sync_unit": "days"}):     # longer than a year
+        assert c.put("/api/settings", json={**good, **bad}).status_code == 400, bad
+
+
+def test_scheduler_uses_the_unit(env, monkeypatch):
+    server, c = env.start()
+    c.put("/api/settings", json={"scan_enabled": True, "auto_add_new": True, "sync_enabled": True,
+                                 "scan_every": 2, "scan_unit": "hours", "sync_every": 1, "sync_unit": "days"})
+    ran = []
+    monkeypatch.setattr(server, "run_scan", lambda trigger: ran.append("scan"))
+    monkeypatch.setattr(server, "start_sync_async", lambda trigger: ran.append("sync"))
+    monkeypatch.setattr(server, "romm_saved", lambda: {})
+
+    def tick(scan_age, sync_age):
+        now = server.time.time()
+        iso = lambda age: server.datetime.fromtimestamp(now - age, server.timezone.utc).isoformat()
+        server.update_state(last_scan={"time": iso(scan_age)}, last_sync={"time": iso(sync_age)})
+        ran.clear()
+
+        def stop(_):
+            raise KeyboardInterrupt
+        monkeypatch.setattr(server.time, "sleep", stop)
+        try:
+            server.scheduler_loop()
+        except KeyboardInterrupt:
+            pass
+        return sorted(ran)
+
+    assert tick(scan_age=90 * 60, sync_age=23 * 3600) == []
+    assert tick(scan_age=2 * 3600 + 5, sync_age=23 * 3600) == ["scan"]
+    assert tick(scan_age=60, sync_age=86400 + 5) == ["sync"]
 
 
 def test_command_line_resync(env, capsys):

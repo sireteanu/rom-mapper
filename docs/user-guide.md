@@ -22,6 +22,10 @@ folder that contains all your ROM folders and the mapping folder, at the **same 
 container (for example `/path/to/shares:/path/to/shares`). After that you never need to change the
 container to use another folder.
 
+If RomM's download folders are somewhere else, add a second mapping for RomM, also at the same
+path: the folder that **holds** the download folders (see
+[RomM in another place](../README.md#docker-unraid-or-any-docker-host) in the README).
+
 Open `http://YOUR-SERVER:8085/`. The version you're running is next to the title; click it to see
 what changed. The page has two tabs at the top: **Frontend links** (steps 2-7) and **RomM** (step 8).
 Each has its own buttons on the right.
@@ -76,9 +80,13 @@ removed, and any problems).
 
 In **Schedule**:
 
-- **Scan every N min** looks for new and removed folders. With **Auto-add new folders** they're
+- **Scan every N** looks for new and removed folders. With **Auto-add new folders** they're
   added to the mapping (unmapped, so nothing changes until you give them names).
-- **Resync every N h** keeps the links in line with the mapping.
+- **Resync every N** keeps the links in line with the mapping.
+
+Pick **min**, **hours** or **days** next to each number. Scans can run every minute; resyncs at
+most every 5 minutes. The card shows when each runs next. Turning a schedule on runs it right away
+if it's already due.
 
 ## 7. Export and import
 
@@ -114,6 +122,10 @@ Open the **RomM** tab (or go to `http://YOUR-SERVER:8085/#romm`).
 
 **"Source folder not found" / "Folder not found".** The folder isn't inside the folder mounted into
 the container, or the path has a typo. Paths must be the same as on the host.
+
+**RomM: "not inside a folder mounted into the container".** RomM's platform links go next to the
+download folders. Mount the folder that holds them (not the download folder itself), at the same
+path, or pick a links folder inside a mounted folder.
 
 **A link isn't created.** Check the resync output: the folder may be *Missing*, the name may be
 used twice for that frontend, or a real file or folder may already be in the way.

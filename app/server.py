@@ -54,11 +54,18 @@ DEFAULT_SETTINGS = {
     # source folders for the mapping grid: [{"path", "label", "depth"}]; [] = SRC_BASE (one level)
     "sources": [],
     "scan_enabled": True,
-    "scan_interval_minutes": 60,
+    "scan_every": 1,
+    "scan_unit": "hours",
     "auto_add_new": True,
     "sync_enabled": False,
-    "sync_interval_hours": 24,
+    "sync_every": 1,
+    "sync_unit": "days",
 }
+
+# Schedule units (seconds each) and the shortest / longest interval allowed.
+UNITS = {"minutes": 60, "hours": 3600, "days": 86400}
+MIN_INTERVAL = {"scan": 60, "sync": 300}
+MAX_INTERVAL = 365 * 86400
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 
@@ -85,10 +92,45 @@ def load_state():
             data = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         data = {}
-    data["settings"] = {**DEFAULT_SETTINGS, **data.get("settings", {})}
+    data["settings"] = {**DEFAULT_SETTINGS, **convert_schedule(dict(data.get("settings", {})))}
     data.setdefault("last_scan", None)
     data.setdefault("last_sync", None)
     return data
+
+
+def best_unit(minutes):
+    """A number of minutes -> (every, unit) in the largest unit that divides it evenly."""
+    for unit in ("days", "hours"):
+        size = UNITS[unit] // 60
+        if minutes >= size and minutes % size == 0:
+            return minutes // size, unit
+    return minutes, "minutes"
+
+
+def convert_schedule(saved):
+    """Before 1.0.3 the schedule was scan_interval_minutes / sync_interval_hours; now each is a
+    number and a unit (minutes, hours or days)."""
+    for kind, old, minutes_per in (("scan", "scan_interval_minutes", 1), ("sync", "sync_interval_hours", 60)):
+        if old not in saved:
+            continue
+        value = saved.pop(old)
+        if f"{kind}_every" in saved:
+            continue
+        try:
+            minutes = max(1, round(float(value) * minutes_per))
+        except (TypeError, ValueError):
+            continue
+        saved[f"{kind}_every"], saved[f"{kind}_unit"] = best_unit(minutes)
+    return saved
+
+
+def interval_seconds(settings, kind):
+    """How often the scan ("scan") or resync ("sync") runs, in seconds."""
+    try:
+        seconds = float(settings[f"{kind}_every"]) * UNITS.get(settings[f"{kind}_unit"], 3600)
+    except (KeyError, TypeError, ValueError):
+        seconds = 0
+    return min(MAX_INTERVAL, max(MIN_INTERVAL[kind], seconds))
 
 
 def save_state(data):
@@ -558,7 +600,27 @@ def romm_check(sources, links_dir):
     names = [os.path.relpath(p, links_dir) for p in sources]
     if len(set(names)) != len(names):
         return "The same folder is listed twice."
+    if IN_DOCKER and not on_host_folder(links_dir):
+        return (f"The links folder {links_dir} is not inside a folder mounted into the container, so the "
+                f"platform links would be lost. Mount the folder that holds the download folders (not the "
+                f"download folder itself) at the same path, or choose a links folder inside a mounted folder.")
     return None
+
+
+IN_DOCKER = os.path.exists("/.dockerenv")
+
+
+def on_host_folder(path):
+    """Inside Docker: is path inside a folder mounted from the host? Otherwise it is on the
+    container's own disk, and whatever is written there is gone with the next update."""
+    p = os.path.abspath(path)
+    while True:
+        if os.path.ismount(p):
+            return os.path.dirname(p) != p          # the container's own root isn't a host folder
+        parent = os.path.dirname(p)
+        if parent == p:
+            return False
+        p = parent
 
 
 FULL_READ_EVERY = 3600     # s; between full reads only folders whose date changed are listed
@@ -635,7 +697,7 @@ def scheduler_loop():
             now = time.time()
             last_scan = parse_iso((state["last_scan"] or {}).get("time"))
             last_sync = parse_iso((state["last_sync"] or {}).get("time"))
-            if s["scan_enabled"] and now - last_scan >= max(1, float(s["scan_interval_minutes"])) * 60:
+            if s["scan_enabled"] and now - last_scan >= interval_seconds(s, "scan"):
                 run_scan("scheduled")
                 romm_settings = romm_saved()
                 if romm_settings.get("keep_links") and romm_settings.get("sources"):
@@ -643,7 +705,7 @@ def scheduler_loop():
                         romm_apply_links("scheduled")
                     except Exception as e:  # noqa: BLE001
                         log(f"RomM platform links not updated: {e}")
-            if s["sync_enabled"] and now - last_sync >= max(0.1, float(s["sync_interval_hours"])) * 3600:
+            if s["sync_enabled"] and now - last_sync >= interval_seconds(s, "sync"):
                 start_sync_async("scheduled")
         except Exception as e:  # noqa: BLE001 - never let the scheduler die
             log(f"Scheduler error: {e}")
@@ -710,14 +772,24 @@ def api_settings():
     body = request.get_json(force=True)
     s = dict(DEFAULT_SETTINGS)
     s["sources"] = load_state()["settings"].get("sources") or []
-    try:
-        s["scan_enabled"] = bool(body.get("scan_enabled"))
-        s["auto_add_new"] = bool(body.get("auto_add_new"))
-        s["sync_enabled"] = bool(body.get("sync_enabled"))
-        s["scan_interval_minutes"] = max(1, int(body.get("scan_interval_minutes")))
-        s["sync_interval_hours"] = max(0.1, float(body.get("sync_interval_hours")))
-    except (TypeError, ValueError):
-        return jsonify({"error": "Intervals must be numbers."}), 400
+    body = convert_schedule(dict(body))          # older pages send the old field names
+    s["scan_enabled"] = bool(body.get("scan_enabled"))
+    s["auto_add_new"] = bool(body.get("auto_add_new"))
+    s["sync_enabled"] = bool(body.get("sync_enabled"))
+    for kind, what in (("scan", "Scan"), ("sync", "Resync")):
+        unit = body.get(f"{kind}_unit")
+        if unit not in UNITS:
+            return jsonify({"error": f"{what}: the unit must be minutes, hours or days."}), 400
+        try:
+            every = int(body.get(f"{kind}_every"))
+        except (TypeError, ValueError):
+            return jsonify({"error": f"{what}: the interval must be a whole number."}), 400
+        seconds = every * UNITS[unit]
+        if seconds < MIN_INTERVAL[kind]:
+            return jsonify({"error": f"{what}: the shortest interval is {MIN_INTERVAL[kind] // 60} minute(s)."}), 400
+        if seconds > MAX_INTERVAL:
+            return jsonify({"error": f"{what}: the longest interval is 365 days."}), 400
+        s[f"{kind}_every"], s[f"{kind}_unit"] = every, unit
     update_state(settings=s)
     log("Schedule settings updated")
     return jsonify({"ok": True, "settings": s})

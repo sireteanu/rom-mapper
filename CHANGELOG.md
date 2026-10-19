@@ -5,6 +5,25 @@ release. Newest first.
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-10-19
+
+### New
+- **Schedules in minutes, hours or days.** Pick the unit next to **Scan every** and **Resync
+  every**. Your current schedule is converted automatically (60 minutes becomes 1 hour, 24 hours
+  becomes 1 day) and runs exactly as before.
+- **RomM can use a folder outside the main one.** If RomM's download folders aren't inside the
+  folder mounted for your ROMs, mount a second folder for RomM (the folder that holds the download
+  folders), at the same path. Both compose files have it ready to switch on.
+
+### Improved
+- **RomM won't lose its links to a wrong mount.** In Docker, the RomM tab refuses to make platform
+  links in a folder that isn't mounted from the host, and says what to mount instead.
+- The schedule card says when the next scan and resync run in days for long intervals.
+
+### Fixed
+- Changing several schedule settings quickly could put an earlier value back, and the page's
+  automatic refresh could reset a schedule setting while you were changing it.
+
 ## [1.0.2] - 2026-10-18
 
 ### Improved

@@ -58,6 +58,33 @@ def test_src_base_with_several_folders(env):
     assert [r["folder"] for r in state(c)["rows"]] == ["roms/snes", "collection/n64"]
 
 
+def test_schedule_in_minutes_and_hours_is_converted_to_units(env):
+    """Before 1.0.3 the schedule was scan_interval_minutes and sync_interval_hours."""
+    cases = [  # (old minutes, old hours) -> (scan every, unit, sync every, unit)
+        ((60, 24), (1, "hours", 1, "days")),
+        ((15, 2.5), (15, "minutes", 150, "minutes")),
+        ((1440, 48), (1, "days", 2, "days")),
+        ((90, 0.1), (90, "minutes", 6, "minutes")),
+    ]
+    for (minutes, hours), want in cases:
+        env.write_config("rom-mapper-state.json", json.dumps(
+            {"settings": {"scan_enabled": True, "scan_interval_minutes": minutes, "auto_add_new": False,
+                          "sync_enabled": True, "sync_interval_hours": hours},
+             "last_scan": None, "last_sync": None}))
+        server, c = env.start()
+        s = state(c)["settings"]
+        assert (s["scan_every"], s["scan_unit"], s["sync_every"], s["sync_unit"]) == want
+        assert "scan_interval_minutes" not in s and "sync_interval_hours" not in s
+        assert s["auto_add_new"] is False, "the other settings stay"
+        assert server.interval_seconds(s, "scan") == minutes * 60
+        assert server.interval_seconds(s, "sync") == round(hours * 3600)
+    # a page from before 1.0.3 (still open in a browser) sends the old names
+    r = c.put("/api/settings", json={"scan_enabled": True, "auto_add_new": True, "sync_enabled": False,
+                                     "scan_interval_minutes": "30", "sync_interval_hours": "12"})
+    s = r.get_json()["settings"]
+    assert (s["scan_every"], s["scan_unit"], s["sync_every"], s["sync_unit"]) == (30, "minutes", 12, "hours")
+
+
 def test_romm_settings_from_rom_sync_are_converted(env):
     """Rom Sync's romm-mapper.json: one download folder, choices without a folder name, maybe a
     links folder from inside Rom Sync's container."""

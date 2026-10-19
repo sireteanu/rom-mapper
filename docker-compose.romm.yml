@@ -1,0 +1,11 @@
+# Optional add-on for docker-compose.yml: a second host folder for RomM, for when RomM's download
+# folders are NOT inside EMULATION_ROOT. Mount the folder that HOLDS the download folders (RomM's
+# platform links are made next to them, so they must be inside it), at the SAME path.
+# Switch it on in .env:
+#   ROMM_ROOT=/path/to/downloads
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.romm.yml
+# then pick the download folders inside it on the RomM tab (or set ROMM_SOURCE).
+services:
+  rom-mapper:
+    volumes:
+      - ${ROMM_ROOT:?set ROMM_ROOT in .env}:${ROMM_ROOT}

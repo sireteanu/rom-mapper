@@ -47,7 +47,9 @@
   .ok { color: var(--ok); } .bad { color: var(--danger); } .warn { color: var(--warn); }
   .settings { display: grid; grid-template-columns: auto 1fr; gap: 2px 6px; align-items: center; font-size: 13px; }
   .settings input { margin: 0; }
-  .settings input[type=number] { width: 54px; padding: 1px 4px; }
+  .settings input[type=number] { width: 46px; padding: 1px 4px; }
+  .settings select { font: inherit; color: var(--text); background: var(--input-bg); border: 1px solid var(--border);
+                     border-radius: 5px; padding: 1px 2px; }
   input[type=text], input[type=number], input[type=search] {
     font: inherit; color: var(--text); background: var(--input-bg); border: 1px solid var(--border);
     border-radius: 5px; padding: 4px 6px; }
@@ -215,9 +217,9 @@
   <div class="card">
     <h3>Schedule</h3>
     <div class="settings">
-      <input type="checkbox" id="sScan"><label for="sScan">Scan every <input type="number" id="sScanMin" min="1"> min</label>
+      <input type="checkbox" id="sScan"><label for="sScan">Scan every <input type="number" id="sScanN" min="1" step="1" aria-label="Scan interval"> <select id="sScanU" aria-label="Scan unit"><option value="minutes">min</option><option value="hours">hours</option><option value="days">days</option></select></label>
       <input type="checkbox" id="sAuto"><label for="sAuto">Auto-add new folders</label>
-      <input type="checkbox" id="sSync"><label for="sSync">Resync every <input type="number" id="sSyncHr" min="0.1" step="0.5"> h</label>
+      <input type="checkbox" id="sSync"><label for="sSync">Resync every <input type="number" id="sSyncN" min="1" step="1" aria-label="Resync interval"> <select id="sSyncU" aria-label="Resync unit"><option value="minutes">min</option><option value="hours">hours</option><option value="days">days</option></select></label>
     </div>
     <div class="sub" id="nextRuns"></div>
   </div>
@@ -372,7 +374,9 @@ function ago(iso) {
 function inFuture(ms) {
   if (ms <= 0) return "due now";
   const m = ms / 60000;
-  return m < 60 ? `in ${Math.round(m)} min` : `in ${(m / 60).toFixed(1)} h`;
+  if (m < 60) return `in ${Math.round(m)} min`;
+  if (m < 48 * 60) return `in ${(m / 60).toFixed(1)} h`;
+  return `in ${(m / 1440).toFixed(1)} days`;
 }
 
 function setDirty(v) {
@@ -428,12 +432,14 @@ function renderMeta() {
   $("btnSync").disabled = model.sync_running;
 
   const s = model.settings;
-  $("sScan").checked = s.scan_enabled; $("sScanMin").value = s.scan_interval_minutes;
-  $("sAuto").checked = s.auto_add_new;
-  $("sSync").checked = s.sync_enabled; $("sSyncHr").value = s.sync_interval_hours;
+  if (!document.activeElement?.closest?.(".settings")) {   // don't overwrite what you're typing
+    $("sScan").checked = s.scan_enabled; $("sScanN").value = s.scan_every; $("sScanU").value = s.scan_unit;
+    $("sAuto").checked = s.auto_add_new;
+    $("sSync").checked = s.sync_enabled; $("sSyncN").value = s.sync_every; $("sSyncU").value = s.sync_unit;
+  }
   const next = [];
-  if (s.scan_enabled) next.push(`next scan ${inFuture(new Date(sc?.time || 0).getTime() + s.scan_interval_minutes * 60000 - Date.now())}`);
-  if (s.sync_enabled) next.push(`next resync ${inFuture(new Date(sy?.time || 0).getTime() + s.sync_interval_hours * 3600000 - Date.now())}`);
+  if (s.scan_enabled) next.push(`next scan ${inFuture(new Date(sc?.time || 0).getTime() + everyMs(s, "scan") - Date.now())}`);
+  if (s.sync_enabled) next.push(`next resync ${inFuture(new Date(sy?.time || 0).getTime() + everyMs(s, "sync") - Date.now())}`);
   $("nextRuns").textContent = next.join(" · ") || "Schedules are off";
 }
 
@@ -638,14 +644,26 @@ function watchSync() {
   }, 2000);
 }
 
+const UNIT_MS = { minutes: 60000, hours: 3600000, days: 86400000 };
+function everyMs(s, kind) { return s[`${kind}_every`] * (UNIT_MS[s[`${kind}_unit`]] || 3600000); }
+
+let settingsSeq = 0;      // only the newest save's answer is shown (changes save one by one)
 async function saveSettings() {
-  const body = { scan_enabled: $("sScan").checked, scan_interval_minutes: $("sScanMin").value,
-                 auto_add_new: $("sAuto").checked, sync_enabled: $("sSync").checked, sync_interval_hours: $("sSyncHr").value };
-  try { const r = await api("PUT", "/api/settings", body); model.settings = r.settings; renderMeta(); toast("Schedule saved."); }
-  catch (e) { alert(e.message); }
+  const mine = ++settingsSeq;
+  const body = { scan_enabled: $("sScan").checked, scan_every: $("sScanN").value, scan_unit: $("sScanU").value,
+                 auto_add_new: $("sAuto").checked,
+                 sync_enabled: $("sSync").checked, sync_every: $("sSyncN").value, sync_unit: $("sSyncU").value };
+  try {
+    const r = await api("PUT", "/api/settings", body);
+    if (mine !== settingsSeq) return;
+    model.settings = r.settings; renderMeta(); toast("Schedule saved.");
+  } catch (e) {
+    if (mine !== settingsSeq) return;
+    alert(e.message); document.activeElement?.blur?.(); renderMeta();
+  }
   loadActivity();
 }
-["sScan", "sAuto", "sSync", "sScanMin", "sSyncHr"].forEach(id => $(id).addEventListener("change", saveSettings));
+["sScan", "sAuto", "sSync", "sScanN", "sScanU", "sSyncN", "sSyncU"].forEach(id => $(id).addEventListener("change", saveSettings));
 
 window.addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
 

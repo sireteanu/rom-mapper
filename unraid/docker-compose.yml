@@ -16,11 +16,17 @@ services:
       - CONFIG_DIR=/config
       - SRC_BASE=/path/to/shares/roms       # first source folder (change the list in the page)
       - DEST_PATH=/path/to/shares/mapping   # where the frontend folders of links are made
+      # RomM download folder(s), ";"-separated - or set them on the RomM tab
+      # - ROMM_SOURCE=/path/to/downloads/lolroms
     volumes:
       - /path/to/appdata/rom-mapper:/config
-      # ONE folder containing everything ROM Mapper uses, at the SAME path inside the container
-      # (links are absolute). Folders are then picked in the page.
+      # The folder containing your ROM folders and the mapping folder, at the SAME path inside the
+      # container (links are absolute). Folders are then picked in the page.
       - /path/to/shares:/path/to/shares
+      # RomM (optional): ONLY if RomM's download folders are not inside the folder above. Mount the
+      # folder that HOLDS them (e.g. /path/to/downloads for /path/to/downloads/lolroms), same path on
+      # both sides - RomM's platform links are made next to the download folders, inside it.
+      # - /path/to/downloads:/path/to/downloads
     labels:
       net.unraid.docker.webui: "http://[IP]:[PORT:8085]/"
     restart: unless-stopped

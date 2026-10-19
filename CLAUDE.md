@@ -30,8 +30,12 @@ Docker (Unraid). See README.md for the full reference.
   with a full read every hour and on Refresh (Unraid shares don't always update a folder's date);
   the page doesn't refresh while its tab is hidden; RomM's platform list comes from
   `/api/romm/platforms` once.
-- The container runs as 99:100 and sees one host folder at the same path; links are absolute
-  (frontends) or relative (RomM).
+- The container runs as 99:100 and sees one host folder at the same path (plus, optionally, a
+  second one holding RomM's download folders: `docker-compose.romm.yml`); links are absolute
+  (frontends) or relative (RomM). In Docker, `romm_check` refuses a links folder that isn't on a
+  host mount (`on_host_folder`).
+- Schedule settings are `scan_every`/`scan_unit` and `sync_every`/`sync_unit` (minutes, hours,
+  days); `convert_schedule` upgrades the older `scan_interval_minutes`/`sync_interval_hours`.
 
 ## Releases
 - Every app change = new version: bump `app/version.py`, add `## [x.y.z] - date` to CHANGELOG.md
