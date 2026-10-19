@@ -24,8 +24,9 @@ Docker (Unraid). See README.md for the full reference.
   unless a subfolder has its own choice; `apply_links` only changes links pointing into a root.
   RomM facts it relies on are in the module docstring.
 - Older files must keep working: any change to stored formats gets a conversion and a case in
-  `tests/test_upgrades.py` (old `Rom_Mapping.csv`, rows without labels, one-folder and Rom Sync
-  `romm-mapper.json`).
+  `tests/test_upgrades.py` (rows without labels, the minutes/hours schedule, one-folder and Rom
+  Sync `romm-mapper.json`). There is no CSV import or export (removed in 1.0.3) - don't add one
+  back without asking.
 - Disk reads: RomM folder counts (`romm.folders_from_disk`) re-list only folders whose mtime changed,
   with a full read every hour and on Refresh (Unraid shares don't always update a folder's date);
   the page doesn't refresh while its tab is hidden; RomM's platform list comes from

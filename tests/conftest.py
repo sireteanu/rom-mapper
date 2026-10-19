@@ -31,7 +31,7 @@ class Env:
         os.makedirs(self.roms)
         os.makedirs(self.config)
         self.monkeypatch = monkeypatch
-        self.env = {"INPUT_CSV": os.path.join(self.config, "Rom_Mapping.csv"), "SRC_BASE": self.roms,
+        self.env = {"CONFIG_DIR": self.config, "SRC_BASE": self.roms,
                     "DEST_PATH": self.dest, "ROMM_SOURCE": ""}
 
     def path(self, *parts):

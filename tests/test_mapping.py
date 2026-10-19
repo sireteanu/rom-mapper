@@ -1,4 +1,4 @@
-"""The mapping grid: source folders, scanning, saving, links, import/export."""
+"""The mapping grid: source folders, scanning, saving, links, schedule."""
 import json
 import os
 
@@ -107,7 +107,7 @@ def test_source_folder_labels_stay_when_reordered_and_nesting_is_refused(env):
     labels = [x["label"] for x in state(c)["sources"]]
     assert labels == ["x", "x-2"]
     c.put("/api/sources", json={"sources": [{"path": env.path("b", "x")}, {"path": env.path("a", "x")}]})
-    assert [x["label"] for x in state(c)["sources"]] == ["x-2", "x"]          # the CSV refers to them
+    assert [x["label"] for x in state(c)["sources"]] == ["x-2", "x"]          # the mapping refers to them
     r = c.put("/api/sources", json={"sources": [{"path": env.path("a")}, {"path": env.path("a", "x")}]})
     assert r.status_code == 400 and "inside" in r.get_json()["error"]
     assert c.put("/api/sources", json={"sources": [{"path": "relative/path"}]}).status_code == 400
@@ -153,19 +153,6 @@ def test_mapping_is_stored_as_json_with_a_backup(env):
     data = json.loads(env.read_config("rom-mapper-mapping.json"))
     assert data["rows"] == [{"folder": "roms/snes", "values": ["two"]}]
     assert json.loads(env.read_config("rom-mapper-mapping.json.bak"))["rows"][0]["values"] == ["one"]
-
-
-def test_import_reads_excel_style_csv_and_reports_problems(env):
-    server, c = env.start()
-    text = ('﻿Folder,rgs,"Retro Bat"\r\nMedia Toggle,0,1\r\nMedia Location,,MEDIA\r\n'
-            'snes,snes,"super nes"\r\nlolroms/x,"a,b",\r\n')
-    d = c.post("/api/import", data=text, content_type="text/csv").get_json()
-    assert [f["name"] for f in d["frontends"]] == ["rgs", "Retro Bat"]
-    assert d["frontends"][1] == {"name": "Retro Bat", "media_toggle": "1", "media_location": "MEDIA"}
-    assert d["rows"][0] == {"folder": "roms/snes", "values": ["snes", "super nes"]}   # gets its source name
-    assert any("comma" in p for p in d["problems"])
-    assert c.post("/api/import", data="", content_type="text/csv").status_code == 400
-    assert "rom-mapper-mapping.json" not in os.listdir(env.config), "import alone saves nothing"
 
 
 def test_settings_and_schedule_validation(env):

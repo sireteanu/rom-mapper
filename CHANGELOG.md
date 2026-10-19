@@ -20,6 +20,13 @@ release. Newest first.
   links in a folder that isn't mounted from the host, and says what to mount instead.
 - The schedule card says when the next scan and resync run in days for long intervals.
 
+### Removed
+- **Import and export.** The CSV buttons are gone: the mapping is edited in the grid and stored by
+  the app (with a backup of the previous version on every save).
+- **Reading `Rom_Mapping.csv`.** It was imported once at the first start; installs that already
+  did that keep their mapping, and the old file is left untouched. A new install starts with an
+  empty mapping.
+
 ### Fixed
 - Changing several schedule settings quickly could put an earlier value back, and the page's
   automatic refresh could reset a schedule setting while you were changing it.

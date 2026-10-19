@@ -235,15 +235,11 @@
   <span class="spacer"></span>
   <span id="dupNote" class="warn" hidden></span>
   <button id="btnSources" title="Which folders the grid reads, and how deep">Source folders</button>
-  <button id="btnImport" title="Load a mapping from a CSV file (you review it, then Save)">Import</button>
-  <button id="btnExport" title="Download the mapping as a CSV - every folder in the source folders is listed, mapped or not">Export</button>
-  <input type="file" id="importFile" accept=".csv,text/csv" hidden>
   <button id="btnRemoveMissing" hidden class="danger">Remove missing rows</button>
   <button id="btnAddFolder">+ Folder</button>
   <button id="btnAddFe">+ Frontend</button>
 </div>
-<div class="hint" style="padding: 0 20px 6px">Tip: double-click an empty cell to fill it with the folder name. Blank cell = no link for that frontend.
-  Export downloads a CSV with every folder (to edit in a spreadsheet); Import loads one back.</div>
+<div class="hint" style="padding: 0 20px 6px">Tip: double-click an empty cell to fill it with the folder name. Blank cell = no link for that frontend.</div>
 
 <div class="table-wrap"><table id="grid"></table></div>
 </main>
@@ -312,17 +308,6 @@
   <h3 style="margin-top:0">Last resync output</h3>
   <pre id="outPre"></pre>
   <form method="dialog" style="text-align:right"><button>Close</button></form>
-</dialog>
-<dialog id="impDlg" class="srcdlg">
-  <h3 style="margin-top:0">Import mapping</h3>
-  <p id="impSummary"></p>
-  <ul id="impProblems" class="bad" hidden></ul>
-  <label class="check" style="display:flex;gap:6px;margin:6px 0"><input type="radio" name="impMode" value="merge" checked>
-    <span><b>Merge</b> - folders in the file get its names (other folders and frontends stay as they are)</span></label>
-  <label class="check" style="display:flex;gap:6px;margin:6px 0"><input type="radio" name="impMode" value="replace">
-    <span><b>Replace</b> - the grid becomes exactly what's in the file</span></label>
-  <p class="hint">Nothing is saved yet: the grid shows the result, and you click Save (or reload to undo).</p>
-  <div class="foot"><button id="impCancel" type="button">Cancel</button><button id="impApply" class="primary" type="button">Load into the grid</button></div>
 </dialog>
 
 <dialog id="srcDlg" class="srcdlg">
@@ -676,74 +661,6 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) { hiddenAt = Date.now(); return; }
   if (Date.now() - hiddenAt > 30000) refreshNow();
 });
-
-// ------------------------------------------------------------- import / export
-function csvCell(v) {
-  v = String(v ?? "");
-  return /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
-}
-$("btnExport").onclick = () => {
-  // what the grid shows (unsaved edits included); rows include every folder found in the
-  // source folders, so the file lists them all, ready to fill in
-  const fes = model.frontends;
-  const lines = [["Folder", ...fes.map(f => f.name)], ["Media Toggle", ...fes.map(f => f.media_toggle)],
-                 ["Media Location", ...fes.map(f => f.media_location)],
-                 ...model.rows.map(r => [r.folder, ...fes.map((_, i) => r.values[i] || "")])];
-  const text = "\ufeff" + lines.map(l => l.map(csvCell).join(",")).join("\r\n") + "\r\n";
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
-  a.download = `rom-mapping-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.append(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  toast(`Exported ${model.rows.length} folders × ${fes.length} frontends${dirty ? " (including unsaved changes)" : ""}.`);
-};
-let imported = null;
-$("btnImport").onclick = () => { $("importFile").value = ""; $("importFile").click(); };
-$("importFile").onchange = async () => {
-  const file = $("importFile").files[0]; if (!file) return;
-  try {
-    const res = await fetch("/api/import", { method: "POST", headers: { "Content-Type": "text/csv" }, body: await file.text() });
-    const d = await res.json();
-    if (!res.ok) throw new Error(d.error || res.statusText);
-    imported = d;
-    const mapped = d.rows.filter(r => r.values.some(v => v)).length;
-    const n = (k, w) => `${k} ${w}${k === 1 ? "" : "s"}`;
-    $("impSummary").textContent = `${file.name}: ${n(d.rows.length, "folder")} (${mapped} with names) × ${n(d.frontends.length, "frontend")} (${d.frontends.map(f => f.name).join(", ") || "none"}).`;
-    $("impProblems").innerHTML = (d.problems || []).slice(0, 8).map(p => `<li>${esc(p)}</li>`).join("");
-    $("impProblems").hidden = !(d.problems || []).length;
-    $("impDlg").showModal();
-  } catch (e) { alert("Could not import: " + e.message); }
-};
-$("impCancel").onclick = () => $("impDlg").close();
-$("impApply").onclick = () => {
-  const d = imported; if (!d) return;
-  const mode = document.querySelector('input[name="impMode"]:checked').value;
-  if (mode === "replace") {
-    const onDisk = new Set(model.rows.filter(r => r.status !== "missing").map(r => r.folder));
-    model.frontends = d.frontends.map(f => ({ ...f }));
-    model.rows = d.rows.map(r => ({ folder: r.folder, values: [...r.values], status: "unmapped" }));
-    model.rows.forEach(r => { if (!onDisk.has(r.folder)) r.status = "missing"; else r.status = rowStatus(r); });
-  } else {
-    // merge: add frontends the grid doesn't have, then copy the file's names into matching folders
-    const idx = {};
-    for (const f of d.frontends) {
-      let i = model.frontends.findIndex(x => x.name === f.name);
-      if (i < 0) { model.frontends.push({ ...f }); model.rows.forEach(r => r.values.push("")); i = model.frontends.length - 1; }
-      else { model.frontends[i].media_toggle = f.media_toggle; model.frontends[i].media_location = f.media_location; }
-      idx[f.name] = i;
-    }
-    const byFolder = new Map(model.rows.map(r => [r.folder, r]));
-    for (const ir of d.rows) {
-      let r = byFolder.get(ir.folder);
-      if (!r) { r = { folder: ir.folder, values: model.frontends.map(() => ""), status: "missing" }; model.rows.push(r); byFolder.set(r.folder, r); }
-      d.frontends.forEach((f, j) => { if (ir.values[j] !== undefined && ir.values[j] !== "") r.values[idx[f.name]] = ir.values[j]; });
-      if (r.status !== "missing" && r.status !== "new") r.status = rowStatus(r);
-    }
-  }
-  $("impDlg").close();
-  setDirty(true); renderGrid();
-  toast("Imported into the grid - check it, then Save.", 5000);
-};
 
 // ------------------------------------------------------------- source folders
 let srcEdit = [];

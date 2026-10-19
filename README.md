@@ -24,11 +24,10 @@ schedule. The page has two tabs of equal standing: **Frontend links** (the mappi
 3. [How it works](#how-it-works)
 4. [RomM](#romm)
 5. [Settings and files](#settings-and-files)
-6. [Import and export](#import-and-export)
-7. [Upgrading from older versions](#upgrading-from-older-versions)
-8. [HTTP API](#http-api)
-9. [Code map](#code-map)
-10. [Development, tests and releases](#development-tests-and-releases)
+6. [Upgrading from older versions](#upgrading-from-older-versions)
+7. [HTTP API](#http-api)
+8. [Code map](#code-map)
+9. [Development, tests and releases](#development-tests-and-releases)
 
 ---
 
@@ -42,7 +41,6 @@ schedule. The page has two tabs of equal standing: **Frontend links** (the mappi
 | Links | **Resync all** makes the mapping folder match the mapping: missing links are made, wrong ones corrected, unused ones removed - nothing else is touched, and frontends never see an empty folder. |
 | Status | Rows are marked *New* (on disk, not mapped yet), *Unmapped*, *Missing* (mapped, gone from disk). Filter by status, search, remove missing rows. Duplicate names for one frontend are highlighted (the first row gets the link). |
 | Schedule | Scan and resync each on their own interval, in minutes, hours or days (scans can add new folders automatically). |
-| Import / export | Download the mapping as a CSV that lists **every** folder found (ready to fill in, e.g. in a spreadsheet) and load one back - merged into the grid or replacing it. |
 | RomM | Maps one or more download folders to RomM platforms: platform links in one folder, a generated `config.yml`, per-folder choices, overlap handling. |
 | Storage | Everything is stored by the app in its config folder (JSON); no files to edit by hand. |
 
@@ -217,23 +215,9 @@ All in the config folder (`/config` in Docker):
 | `romm-mapper.json` | RomM: download folders (`sources`), links folder, options, your choices (`map`, by `<download folder>/<path>`) |
 
 Files are written to a temporary file first and then swapped in, so a crash never leaves half a
-file. Environment variables: `CONFIG_DIR` (else the folder of `INPUT_CSV`), `INPUT_CSV` (an older
-CSV to import once), `SRC_BASE` (first source folder(s), `;`-separated), `DEST_PATH` (mapping
-folder), `ROMM_SOURCE`, `PORT` (8085), `MAPPING_FILE`, `STATE_FILE`.
-
----
-
-## Import and export
-
-- **Export** downloads `rom-mapping-<date>.csv` with what the grid shows, unsaved edits included:
-  a header (`Folder`, then one column per frontend), the `Media Toggle` and `Media Location` rows,
-  and one row per folder - **every folder found in the source folders**, mapped or not, so the file
-  is ready to fill in. UTF-8 with a BOM and Windows line endings (opens cleanly in Excel).
-- **Import** reads such a file (also the older `Rom_Mapping.csv`; quotes, BOM and either line ending
-  are fine). Folders get their source name in front like in the grid. Choose **Merge** (folders in
-  the file get its names; other folders and frontends stay; missing frontends are added) or
-  **Replace** (the grid becomes the file). Problems (commas, `..`, ...) are listed. Nothing is saved
-  until you click **Save**.
+file. Environment variables: `CONFIG_DIR` (default `/config`), `SRC_BASE` (first source folder(s),
+`;`-separated), `DEST_PATH` (mapping folder), `ROMM_SOURCE`, `PORT` (8085), `MAPPING_FILE`,
+`STATE_FILE`.
 
 ---
 
@@ -241,9 +225,9 @@ folder), `ROMM_SOURCE`, `PORT` (8085), `MAPPING_FILE`, `STATE_FILE`.
 
 Older files keep working; the tests in `tests/test_upgrades.py` check every case:
 
-- **`Rom_Mapping.csv`** (before 1.0.0): imported once at the first start into
-  `rom-mapper-mapping.json`; the CSV is left untouched and no longer read. Its rows (plain folder
-  names) belong to the first source folder, so every link stays where it was.
+- **`Rom_Mapping.csv`** (before 1.0.0) is no longer read since 1.0.3. Versions 1.0.0 to 1.0.2
+  imported it into `rom-mapper-mapping.json` at their first start; that mapping keeps working (its
+  rows, plain folder names, belong to the first source folder). The CSV file is left where it is.
 - **Rows without a source name** keep pointing at the first source folder, even after the list is
   reordered (they get the name written in front when the order changes).
 - **Schedule in minutes and hours** (before 1.0.3: `scan_interval_minutes`, `sync_interval_hours`):
@@ -268,7 +252,6 @@ JSON throughout; the page uses nothing else.
 | `PUT /api/sources` `{sources: [{path, depth}]}` | Set the source folders (labels are kept per path) |
 | `POST /api/scan` · `POST /api/sync` · `GET /api/sync` | Scan now · start a resync (409 when running) · resync status |
 | `PUT /api/settings` | Schedule settings |
-| `POST /api/import` (CSV text) | Parse a mapping CSV -> `{frontends, rows, problems}` (not saved) |
 | `GET /api/activity` | Recent events |
 | `GET /api/romm/platforms` | RomM's platform list (`slugs`), loaded once by the page |
 | `GET /api/romm` · `PUT /api/romm/options` · `PUT /api/romm/map {path, action}` · `POST /api/romm/links` | RomM dialog data, options/download folders, a folder's choice, create/update the platform links |
@@ -278,7 +261,7 @@ JSON throughout; the page uses nothing else.
 ## Code map
 
 ```
-app/server.py     Flask app: settings, mapping storage + import, source folders, scan, resync,
+app/server.py     Flask app: settings, mapping storage, source folders, scan, resync,
                   scheduler, RomM endpoints; `python server.py --resync` for a one-off resync
 app/links.py      the link engine: desired links from the mapping, apply only the differences
 app/romm.py       RomM mapping (RULES for lolroms' tree, Mapping with several roots, templates,

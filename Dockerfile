@@ -10,8 +10,7 @@ COPY app/ /app/
 
 ENV PORT=8085 \
     PYTHONUNBUFFERED=1 \
-    CONFIG_DIR=/config \
-    INPUT_CSV=/config/Rom_Mapping.csv
+    CONFIG_DIR=/config
 
 EXPOSE 8085
 

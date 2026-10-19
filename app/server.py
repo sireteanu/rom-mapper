@@ -2,17 +2,14 @@
 
 Keeps the mapping (frontends x folders) in rom-mapper-mapping.json in the config folder, scans
 the source folders for new/removed folders, and keeps the frontend links in line with it
-(links.py) on demand or on a schedule. A CSV can be imported and exported; an older
-Rom_Mapping.csv is imported once at the first start.
+(links.py) on demand or on a schedule.
 
 RomM (romm.py): maps a lolroms download folder (nested, e.g. Nintendo/Super Famicom) to RomM
 platforms with relative platform links next to it plus a generated config.yml. Settings and folder
 choices live in romm-mapper.json in the config folder - the same file Rom Sync used.
 """
 
-import csv
 import hashlib
-import io
 import json
 import os
 import shutil
@@ -29,10 +26,7 @@ import romm
 from version import __version__
 
 # --- CONFIGURATION (environment variables) ---
-# INPUT_CSV: an older Rom_Mapping.csv, imported once if the app has no mapping yet. Its folder is
-# the config folder unless CONFIG_DIR says otherwise.
-INPUT_CSV = os.environ.get("INPUT_CSV", "/config/Rom_Mapping.csv")
-CONFIG_DIR = os.environ.get("CONFIG_DIR") or os.path.dirname(INPUT_CSV) or "."
+CONFIG_DIR = os.environ.get("CONFIG_DIR", "/config")
 MAPPING_FILE = os.environ.get("MAPPING_FILE", os.path.join(CONFIG_DIR, "rom-mapper-mapping.json"))
 SRC_BASE = os.environ.get("SRC_BASE", "/data/roms")
 DEST_PATH = os.environ.get("DEST_PATH", "/data/mapping")
@@ -45,10 +39,6 @@ PORT = int(os.environ.get("PORT", "8085"))
 # Can also be set in the UI; "" = RomM section not set up yet.
 ROMM_SOURCE = os.environ.get("ROMM_SOURCE", "")
 # ----------------------------------------------
-
-TOGGLE_ROW = "Media Toggle"
-LOCATION_ROW = "Media Location"
-RESERVED = {TOGGLE_ROW, LOCATION_ROW}
 
 DEFAULT_SETTINGS = {
     # source folders for the mapping grid: [{"path", "label", "depth"}]; [] = SRC_BASE (one level)
@@ -69,7 +59,7 @@ MAX_INTERVAL = 365 * 86400
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 
-csv_lock = threading.RLock()      # guards reads/writes of the CSV and state file
+csv_lock = threading.RLock()      # guards reads/writes of the mapping and state file
 romm_lock = threading.RLock()     # guards romm-mapper.json and the platform links
 sync_lock = threading.Lock()      # only one sync at a time
 activity = deque(maxlen=200)      # in-memory event log for the UI
@@ -158,30 +148,15 @@ def atomic_write(path, text):
         raise
 
 
-# ---------------------------------------------------------------- CSV model
-#
-# The CSV is deliberately parsed the same naive way rom-mapper.sh does
-# (split on commas, no quoting), so anything the UI writes the script reads.
+# ---------------------------------------------------------------- mapping model
 
 def read_raw():
-    """The saved mapping as text (JSON), "" if there is none. The first time, an older
-    Rom_Mapping.csv is imported."""
+    """The saved mapping as text (JSON), "" if there is none."""
     try:
         with open(MAPPING_FILE, encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
-        pass
-    try:
-        with open(INPUT_CSV, encoding="utf-8-sig") as f:
-            legacy = f.read()
-    except FileNotFoundError:
         return ""
-    m = parse_csv(legacy)
-    write_mapping(m)
-    log(f"Imported {INPUT_CSV} ({len(m['rows'])} folders x {len(m['frontends'])} frontends) - the mapping "
-        f"is now stored in the app ({os.path.basename(MAPPING_FILE)}); the CSV file is no longer used.")
-    with open(MAPPING_FILE, encoding="utf-8") as f:
-        return f.read()
 
 
 def version_of(raw):
@@ -204,34 +179,6 @@ def parse_mapping(raw):
         vals = [str(v or "") for v in r.get("values") or []]
         rows.append({"folder": str(r.get("folder") or ""), "values": (vals + [""] * len(fes))[:len(fes)]})
     return {"key_header": data.get("key_header") or "Folder", "frontends": fes, "rows": rows}
-
-
-def parse_csv(text):
-    """A mapping CSV (an export, or the old Rom_Mapping.csv) -> mapping. Quoted fields, a BOM and
-    Windows line endings (Excel) are fine."""
-    text = text.lstrip("\ufeff")
-    lines = [r for r in csv.reader(io.StringIO(text))]
-    if not lines or not any(c.strip() for c in lines[0]):
-        return empty_mapping()
-    header = [c.strip() for c in lines[0]]
-    names = header[1:]
-    while names and not names[-1]:
-        names.pop()
-    toggles, locations, rows = {}, {}, []
-    for fields in lines[1:]:
-        if not fields or not fields[0].strip():
-            continue
-        folder = fields[0].strip()
-        vals = [(fields[i + 1] if i + 1 < len(fields) else "").strip() for i in range(len(names))]
-        if folder == TOGGLE_ROW:
-            toggles = dict(zip(names, vals))
-        elif folder == LOCATION_ROW:
-            locations = dict(zip(names, vals))
-        else:
-            rows.append({"folder": folder, "values": vals})
-    frontends = [{"name": n, "media_toggle": "1" if toggles.get(n, "0") in ("1", "true", "yes", "TRUE") else "0",
-                  "media_location": locations.get(n, "")} for n in names]
-    return {"key_header": header[0] or "Folder", "frontends": frontends, "rows": rows}
 
 
 def write_mapping(m):
@@ -284,9 +231,7 @@ def validate_mapping(m):
         if not folder.strip():
             errors.append("A row has no folder name.")
             continue
-        if folder in RESERVED:
-            errors.append(f"'{folder}' is a reserved row name.")
-        elif err := bad_path_part(folder, allow_slash=True):
+        if err := bad_path_part(folder, allow_slash=True):
             errors.append(f"Folder '{folder}' {err}.")
         if folder in seen:
             errors.append(f"Folder '{folder}' appears twice.")
@@ -336,8 +281,8 @@ def unique_label(label, taken):
 
 
 def split_key(key, sources):
-    """CSV folder column -> (source, path inside it). "lolroms/Nintendo/Super Famicom" -> the
-    lolroms source; a key without a known label belongs to the first source (older CSVs)."""
+    """Row key -> (source, path inside it). "lolroms/Nintendo/Super Famicom" -> the
+    lolroms source; a key without a known label belongs to the first source (older data)."""
     head, _, rest = key.partition("/")
     for x in sources:
         if x["label"] == head:
@@ -421,7 +366,7 @@ def build_view():
         disk, disk_error = [], str(e)
     for r in m["rows"]:
         r["folder"] = full_key(r["folder"], sources)
-    in_csv = {r["folder"] for r in m["rows"]}
+    in_mapping = {r["folder"] for r in m["rows"]}
 
     for r in m["rows"]:
         path = key_path(r["folder"], sources)
@@ -432,7 +377,7 @@ def build_view():
         else:
             r["status"] = "unmapped"
     for name in disk:
-        if name not in in_csv and not bad_path_part(name, allow_slash=True):
+        if name not in in_mapping and not bad_path_part(name, allow_slash=True):
             m["rows"].append({"folder": name, "values": [""] * len(m["frontends"]), "status": "new"})
 
     return {
@@ -465,9 +410,9 @@ def run_scan(trigger):
 
         for r in m["rows"]:
             r["folder"] = full_key(r["folder"], sources)
-        in_csv = {r["folder"] for r in m["rows"]}
+        in_mapping = {r["folder"] for r in m["rows"]}
         unsupported = [d for d in disk if bad_path_part(d, allow_slash=True)]
-        new = [d for d in disk if d not in in_csv and d not in unsupported]
+        new = [d for d in disk if d not in in_mapping and d not in unsupported]
         missing = [r["folder"] for r in m["rows"]
                    if not os.path.isdir(key_path(r["folder"], sources) or "/nonexistent")]
 
@@ -890,7 +835,7 @@ def api_sources():
             depth = max(1, min(6, int(x.get("depth") or 1)))
         except (TypeError, ValueError):
             return jsonify({"error": "Depth must be a number from 1 to 6."}), 400
-        # a folder keeps its label (the CSV refers to it); new ones get their folder name
+        # a folder keeps its label (the mapping refers to it); new ones get their folder name
         label = (current.get(path) or {}).get("label") or clean_label(os.path.basename(path))
         label = unique_label(label, labels)
         labels.add(label)
@@ -916,24 +861,6 @@ def api_sources():
     return jsonify({"ok": True, "sources": get_sources()})
 
 
-@app.post("/api/import")
-def api_import():
-    """A mapping CSV -> the mapping it holds (not saved: the page merges or replaces its grid and
-    the user saves). Folders get their source folder's name in front, like the grid shows them."""
-    text = request.get_data(as_text=True) or ""
-    try:
-        m = parse_csv(text)
-    except csv.Error as e:
-        return jsonify({"error": f"Not a readable CSV file: {e}"}), 400
-    if not m["frontends"] and not m["rows"]:
-        return jsonify({"error": "The file has no mapping in it (expected a header row: Folder, then one column per frontend)."}), 400
-    sources = get_sources()
-    for r in m["rows"]:
-        r["folder"] = full_key(r["folder"], sources)
-    errors = validate_mapping(m)
-    return jsonify({"frontends": m["frontends"], "rows": m["rows"], "problems": errors})
-
-
 @app.get("/api/activity")
 def api_activity():
     return jsonify(list(activity))
@@ -948,8 +875,6 @@ def main():
     from waitress import serve
 
     log(f"Starting rom-mapper {__version__} on port {PORT} (mapping={MAPPING_FILE}, src={SRC_BASE}, dest={DEST_PATH})")
-    with csv_lock:
-        read_raw()                          # imports an older Rom_Mapping.csv once
     threading.Thread(target=scheduler_loop, daemon=True).start()
     serve(app, host="0.0.0.0", port=PORT, threads=8)
 

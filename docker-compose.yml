@@ -16,8 +16,7 @@ services:
       # RomM download folders (";"-separated) until you set them in the RomM dialog
       ROMM_SOURCE: ${ROMM_SOURCE:-}
     volumes:
-      # The app's settings and mapping (a .bak is kept on every save). An older Rom_Mapping.csv
-      # here is imported once at the first start.
+      # The app's settings and mapping (a .bak is kept on every save).
       - ${CONFIG_DIR}:/config
       # ONE folder that contains everything rom-mapper uses - the ROM/source folders, the mapping
       # folder and RomM's download folders - mounted at the SAME path inside the

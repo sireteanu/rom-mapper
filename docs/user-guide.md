@@ -9,9 +9,8 @@ show your games in RomM. For the full reference see the [README](../README.md).
 - [4. Map folders](#4-map-folders)
 - [5. Save and resync](#5-save-and-resync)
 - [6. Keep it up to date automatically](#6-keep-it-up-to-date-automatically)
-- [7. Export and import](#7-export-and-import)
-- [8. RomM](#8-romm)
-- [9. Troubleshooting](#9-troubleshooting)
+- [7. RomM](#7-romm)
+- [8. Troubleshooting](#8-troubleshooting)
 
 ---
 
@@ -27,7 +26,7 @@ path: the folder that **holds** the download folders (see
 [RomM in another place](../README.md#docker-unraid-or-any-docker-host) in the README).
 
 Open `http://YOUR-SERVER:8085/`. The version you're running is next to the title; click it to see
-what changed. The page has two tabs at the top: **Frontend links** (steps 2-7) and **RomM** (step 8).
+what changed. The page has two tabs at the top: **Frontend links** (steps 2-6) and **RomM** (step 7).
 Each has its own buttons on the right.
 
 ## 2. Choose your source folders
@@ -88,16 +87,7 @@ Pick **min**, **hours** or **days** next to each number. Scans can run every min
 most every 5 minutes. The card shows when each runs next. Turning a schedule on runs it right away
 if it's already due.
 
-## 7. Export and import
-
-- **Export** downloads a CSV with every folder in your source folders - mapped or not - and every
-  frontend. Open it in a spreadsheet, fill in names, and import it back. It's also a handy backup.
-- **Import** reads a CSV (an export, or a `Rom_Mapping.csv` from an older version). Choose
-  **Merge** to apply the file's names to matching folders and keep everything else, or **Replace**
-  to make the grid exactly what's in the file. The grid shows the result; click **Save** to keep it
-  (or reload the page to undo).
-
-## 8. RomM
+## 7. RomM
 
 Open the **RomM** tab (or go to `http://YOUR-SERVER:8085/#romm`).
 
@@ -118,7 +108,7 @@ Open the **RomM** tab (or go to `http://YOUR-SERVER:8085/#romm`).
 
 **RomM platforms list** shows every platform RomM knows, with a search box.
 
-## 9. Troubleshooting
+## 8. Troubleshooting
 
 **"Source folder not found" / "Folder not found".** The folder isn't inside the folder mounted into
 the container, or the path has a typo. Paths must be the same as on the host.

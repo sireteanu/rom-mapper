@@ -4,37 +4,6 @@ import os
 
 from conftest import make_dirs, state
 
-OLD_CSV = ("﻿Folder,!named,rgs,retrobat\r\n"
-           "Media Toggle,0,0,1\r\n"
-           "Media Location,,,MEDIA_FULL\r\n"
-           "snes,Nintendo - Super Nintendo,snes,snes\r\n"
-           "psx,,psx,\r\n"
-           "gone,,gone,\r\n")
-
-
-def test_old_rom_mapping_csv_is_imported_once_and_links_stay_the_same(env):
-    """Before 1.0 the mapping was Rom_Mapping.csv, rows were plain folder names under SRC_BASE."""
-    make_dirs(env.roms, "snes", "psx", "snes/media")
-    env.write_config("Rom_Mapping.csv", OLD_CSV)
-    server, c = env.start()
-    d = state(c)
-    assert [f["name"] for f in d["frontends"]] == ["!named", "rgs", "retrobat"]
-    assert d["frontends"][2]["media_toggle"] == "1"
-    rows = {r["folder"]: (r["values"], r["status"]) for r in d["rows"]}
-    assert rows["roms/snes"] == (["Nintendo - Super Nintendo", "snes", "snes"], "mapped")
-    assert rows["roms/gone"][1] == "missing"
-    assert "rom-mapper-mapping.json" in os.listdir(env.config)
-    assert env.read_config("Rom_Mapping.csv") == OLD_CSV, "the old file is left as it was"
-    server.run_sync("t")
-    # the same links rom-mapper.sh made
-    assert env.link("rgs", "snes") == os.path.join(env.roms, "snes")
-    assert env.link("!named", "Nintendo - Super Nintendo") == os.path.join(env.roms, "snes")
-    assert env.link("retrobat", "MEDIA_FULL", "snes", "media") == os.path.join(env.roms, "snes", "media")
-    # a later change to the old CSV is ignored: the app's copy is used from now on
-    env.write_config("Rom_Mapping.csv", "Folder,other\n")
-    server, c = env.start()
-    assert [f["name"] for f in state(c)["frontends"]] == ["!named", "rgs", "retrobat"]
-
 
 def test_rows_without_a_source_name_keep_their_folder_when_the_first_source_changes(env):
     """Rows saved before source folders had names point at the first source folder."""
@@ -114,3 +83,16 @@ def test_first_romm_version_with_one_source_is_converted(env):
     d = c.get("/api/romm").get_json()
     assert d["sources"] == [lol]
     assert {r["path"]: r["value"] for r in d["rows"]}["lolroms/Atari/2600"] == "exclude"
+
+
+def test_an_old_rom_mapping_csv_is_ignored(env):
+    """Since 1.0.3 Rom_Mapping.csv is no longer read: a new install starts empty, the file stays."""
+    old = "Folder,rgs\nMedia Toggle,0\nMedia Location,\nsnes,snes\n"
+    make_dirs(env.roms, "snes")
+    env.write_config("Rom_Mapping.csv", old)
+    server, c = env.start()
+    d = state(c)
+    assert d["frontends"] == [] and [r["status"] for r in d["rows"]] == ["new"]
+    assert "rom-mapper-mapping.json" not in os.listdir(env.config)
+    assert env.read_config("Rom_Mapping.csv") == old
+    assert c.post("/api/import", data=old, content_type="text/csv").status_code in (404, 405)
