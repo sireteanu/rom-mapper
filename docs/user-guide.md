@@ -26,7 +26,7 @@ path: the folder that **holds** the download folders (see
 [RomM in another place](../README.md#docker-unraid-or-any-docker-host) in the README).
 
 Open `http://YOUR-SERVER:8085/`. The version you're running is next to the title; click it to see
-what changed. The page has two tabs at the top: **Frontend links** (steps 2-6) and **RomM** (step 7).
+what changed. After an update, reload the page - a banner reminds you if a tab was left open. The page has two tabs at the top: **Frontend links** (steps 2-6) and **RomM** (step 7).
 Each has its own buttons on the right.
 
 ## 2. Choose your source folders

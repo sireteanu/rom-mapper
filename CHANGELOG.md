@@ -5,6 +5,13 @@ release. Newest first.
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-10-19
+
+### Improved
+- **A page left open during an update says so.** If ROM Mapper is updated while its page is open
+  in your browser, a banner asks you to reload it, so you don't keep using the old page without
+  the new controls. The version next to the title is the page's own version.
+
 ## [1.0.4] - 2026-10-19
 
 ### New

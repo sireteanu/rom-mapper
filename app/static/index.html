@@ -94,6 +94,8 @@
   .empty { padding: 30px; text-align: center; color: var(--muted); }
   .banner { margin: 8px 20px 0; padding: 8px 12px; border-radius: 6px; background: var(--missing-bg);
             border: 1px solid var(--danger); }
+  .banner.upd { background: var(--new-bg); border-color: var(--accent); display: flex; flex-wrap: wrap;
+                gap: 8px 12px; align-items: center; }
   dialog { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
            max-width: min(900px, 92vw); width: 100%; }
   dialog::backdrop { background: rgba(0,0,0,.45); }
@@ -222,6 +224,7 @@
 <main id="paneLinks">
 <div class="paths" id="paths"></div>
 <div id="banner"></div>
+<div id="updBanner" class="banner upd" role="status" hidden></div>
 
 <section class="cards">
   <div class="card">
@@ -421,11 +424,24 @@ async function load({ keepEdits = false } = {}) {
   if (model.sync_running) watchSync();
 }
 
+let pageVersion = null;    // the version this page was loaded with; the server may be updated later
 function renderMeta() {
   const p = model.paths;
   if (model.app_version) {
-    $("appVersion").textContent = "v" + model.app_version;
-    $("appVersion").href = `https://github.com/sireteanu/rom-mapper/releases/tag/v${model.app_version}`;
+    pageVersion ??= model.app_version;
+    const v = pageVersion;    // the page shows its own version, not the server's
+    $("appVersion").textContent = "v" + v;
+    $("appVersion").href = `https://github.com/sireteanu/rom-mapper/releases/tag/v${v}`;
+    const box = $("updBanner");
+    if (model.app_version !== pageVersion && box.hidden) {
+      box.innerHTML = `ROM Mapper was updated to <b>v${esc(model.app_version)}</b> - this page is still v${esc(pageVersion)}. ` +
+        `<button type="button" class="primary">Reload the page</button>`;
+      box.querySelector("button").onclick = () => {
+        if (dirty && !confirm("You have unsaved changes in the grid. Reload anyway and lose them?")) return;
+        location.reload();
+      };
+      box.hidden = false;
+    }
   }
   $("paths").innerHTML = `Saved in <code>${esc(p.store)}</code> · ROMs ` +
     (model.sources || []).map(x => `<code title="${esc(x.path)}">${esc(x.label)}: ${esc(x.path)} (${x.depth} deep)</code>`).join(" ") +
