@@ -773,7 +773,10 @@ $("srcSave").onclick = async () => {
 
   const label = (v) => v === "exclude" ? "exclude - leave out of RomM" : v === "firmware" ? "firmware (automatic)"
     : v === "" ? "- pick a platform -" : v.startsWith("cat:") ? `${label(v.slice(4))} · categories`
-    : (() => { const p = R.slugs.find(x => x.slug === v); return p ? `${v} - ${p.name}` : v; })();
+    : (() => { const p = R.slugs.find(x => x.slug === v); return p ? `${v} - ${p.name}` : `${v} (custom)`; })();
+  // what a typed name becomes as a platform: lowercase, spaces -> "-" (RomM slugs look like that)
+  const asSlug = (text) => text.trim().toLowerCase().replace(/\s+/g, "-");
+  const SLUG_OK = /^[a-z0-9][a-z0-9_.-]*$/;
   // ---- the platform picker: one searchable list, opened from a row's button
   const pk = { el: null, row: null, btn: null, cur: "", items: [], shown: [], active: 0 };
   function pickerChoices(r, cur) {
@@ -782,13 +785,21 @@ $("srcSave").onclick = async () => {
     else if (cur === "") out.push({ v: "", t: label(""), k: "pick" });
     if (cur === "firmware" || r.auto === "firmware") out.push({ v: "firmware", t: label("firmware"), k: "firmware bios" });
     out.push({ v: "exclude", t: label("exclude"), k: "exclude leave out skip" });
+    // custom platforms already used by other folders (RomM adds them without metadata)
+    const known = new Set(R.slugs.map(p => p.slug));
+    for (const slug of [...new Set((R.platforms || []).map(p => p.slug))].filter(x => !known.has(x)).sort())
+      out.push({ v: slug, t: slug, fam: "custom", k: `${slug} custom` });
     for (const p of R.slugs) out.push({ v: p.slug, t: `${p.slug} - ${p.name}`, fam: p.family, k: `${p.slug} ${p.name} ${p.family}`.toLowerCase() });
-    if (cur && !out.some(o => o.v === cur)) out.push({ v: cur, t: cur, k: cur.toLowerCase() });
+    if (cur && !out.some(o => o.v === cur)) out.push({ v: cur, t: label(cur), k: cur.toLowerCase() });
     return out;
   }
   function pickerList() {
     const words = q("input", pk.el).value.toLowerCase().split(/\s+/).filter(Boolean);
     pk.shown = pk.items.filter(o => words.every(w => o.k.includes(w) || o.t.toLowerCase().includes(w)));
+    // a name that isn't a platform yet: offer it as a custom one (at the end, or alone)
+    const typed = asSlug(q("input", pk.el).value);
+    if (typed && SLUG_OK.test(typed) && !pk.items.some(o => o.v === typed))
+      pk.shown.push({ v: typed, t: `Use "${typed}" as a custom platform`, fam: "RomM adds it without metadata", k: typed });
     pk.active = Math.max(0, Math.min(pk.active, pk.shown.length - 1));
     const ul = q("ul", pk.el); ul.innerHTML = "";
     pk.shown.forEach((o, i) => {
@@ -801,7 +812,7 @@ $("srcSave").onclick = async () => {
       li.onpointerdown = (e) => { e.preventDefault(); pickerChoose(o.v); };
       ul.append(li);
     });
-    if (!pk.shown.length) ul.innerHTML = `<li class="none">No platform matches - try fewer letters.</li>`;
+    if (!pk.shown.length) ul.innerHTML = `<li class="none">No platform matches. A custom platform name uses a-z, 0-9, - _ and . only.</li>`;
     q("input", pk.el).setAttribute("aria-activedescendant", pk.shown.length ? "rPickOpt" + pk.active : "");
     const act = ul.children[pk.active]; if (act && act.scrollIntoView) act.scrollIntoView({ block: "nearest" });
   }

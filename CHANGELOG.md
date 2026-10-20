@@ -5,6 +5,13 @@ release. Newest first.
 
 ## [Unreleased]
 
+## [1.0.13] - 2026-10-20
+
+### New
+- **Custom platforms in the picker.** Type a name RomM doesn't know (`wiiware`, `gb_jp`) and choose
+  *Use "…" as a custom platform* - RomM adds it without metadata, like the importer did. Custom
+  platforms already in use are listed in the picker (marked *custom*), so they're easy to reuse.
+
 ## [1.0.12] - 2026-10-20
 
 ### New

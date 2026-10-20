@@ -92,7 +92,8 @@ mounted into RomM's container under the platform's name, by Docker - nothing is 
    `+translations` (they become categories). Folders you never want in RomM (`media`, `Extras`) go in
    **Never read folders named**.
 2. **Pick the platforms** - folders named like a RomM platform are done already. Click another
-   folder's platform and type to search (`commodore`, `sega`…), or **exclude** it. Subfolders of a
+   folder's platform and type to search (`commodore`, `sega`…), or **exclude** it. For a platform
+   RomM doesn't have (`wiiware`), type the name and choose *Use "…" as a custom platform*. Subfolders of a
    platform show *category of …*; exclude the ones that aren't categories (like `images`).
 3. **RomM volumes** - copy them into RomM's compose file (the RomM service's `volumes:`), replacing
    its own `.../romm/library/roms` line, and **Compose Up** RomM. Docker mounts each folder as

@@ -185,7 +185,9 @@ gets compose's long syntax; add `:ro` / `read_only: true` for read-only).
   says so). **Never read folders named** (default `media`) skips folders everywhere and tells RomM to
   ignore them too. Excluded folders aren't read inside.
 - **Platforms**: folders named like a RomM platform get it automatically, lolroms' tree has built-in
-  rules; pick the rest in the searchable picker, or **exclude**. A platform counts when it or anything
+  rules; pick the rest in the searchable picker, or **exclude**. A name RomM doesn't know can be used
+  too (*Use "…" as a custom platform*: lowercase, spaces become `-`); RomM adds it without metadata,
+  and custom platforms in use are offered again in the picker. A platform counts when it or anything
   below it has files. Two folders for one platform: the one named like it wins, else the shallower,
   else the first by name (a warning names both).
 - **Categories**: a platform whose subfolders belong to it (*category of gbc* in the list) gets
