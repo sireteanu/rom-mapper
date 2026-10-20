@@ -85,23 +85,20 @@ if it's already due.
 
 ## 7. RomM
 
-Open the **RomM** tab (or go to `http://YOUR-SERVER:8085/#romm`). RomM reads your ROM folder by
-name - nothing is moved and no links are made.
+Open the **RomM** tab (or go to `http://YOUR-SERVER:8085/#romm`). Each folder you give a platform is
+mounted into RomM's roms folder under the platform's name - nothing is moved.
 
-1. **Download folder** - add the folder with one folder per system (like `/path/to/roms`). In RomM's
-   compose file, map that same folder as RomM's roms folder: `/path/to/roms:/romm/library/roms`.
-   Reading a big folder takes a while: a progress bar shows how far it is. **1 level** gives one row
-   per system and reads fastest; more levels show subfolders (e.g. to exclude some). Folders you
-   never want in RomM (like `media`, or `Extras`) go in **Never read folders named**.
-2. **Pick the platforms** - folders named like a RomM platform (`snes`) are done already. Click
-   another folder's platform and type to search (`commodore`, `sega`…), or pick **exclude** to leave
-   it out. Each choice is saved right away. The table is a tree: click ▸ to see what's inside, or
-   use **Find a folder**.
-3. **Categories** - if a system's subfolders group its games (`atari2600/Homebrew`,
-   `atari2600/Hacks`), open its picker and choose **Subfolders are categories**. Leave it off when each
-   subfolder is one game (multi-disc games).
-4. **config.yml** - copy it into RomM's `config.yml` (keep your other settings), restart RomM and
-   scan its library.
+1. **Download folders** - add your ROM folders. Use **2 levels** if systems have subfolders like
+   `+translations` (they become categories). Folders you never want in RomM (`media`, `Extras`) go in
+   **Never read folders named**.
+2. **Pick the platforms** - folders named like a RomM platform are done already. Click another
+   folder's platform and type to search (`commodore`, `sega`…), or **exclude** it. Subfolders of a
+   platform show *category of …*; exclude the ones that aren't categories (like `images`).
+3. **The script, once** - in Unraid's User Scripts, add [`romm-mounts.sh`](../unraid/romm-mounts.sh),
+   set its three paths, and schedule it **At Startup of Array**. In RomM's compose file, map its
+   `DEST_PATH` as `/romm/library/roms`.
+4. **After changes** - run the script (it restarts RomM), copy the **config.yml** into RomM's
+   `config.yml` when it changed, and scan RomM's library.
 
 Upgrading from a version that made platform links? **Remove old platform links** at the top removes
 them (only the links ROM Mapper made).

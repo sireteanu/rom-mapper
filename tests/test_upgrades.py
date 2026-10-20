@@ -86,7 +86,19 @@ def test_settings_from_the_platform_links_versions_still_load(env):
     server, c = env.start()
     d = c.get("/api/romm").get_json()
     assert d["error"] is None and d["options"] == {"skip_names": ["media"]}
-    assert '"amigacdtv": "commodore-cdtv"' in d["outputs"]["config"]
+    assert f"{os.path.join(rom, 'amigacdtv')}\tcommodore-cdtv" in d["outputs"]["mounts"]
+
+
+def test_categories_chosen_in_1_0_9_are_read_as_the_platform(env):
+    """1.0.9 stored "cat:<slug>" for a system with categories; categories now follow from the
+    subfolders, so it is simply that platform."""
+    rom = env.path("roms", "collection")
+    make_dirs(rom, "atari2600", "atari2600/Homebrew")
+    env.write_config("romm-mapper.json", json.dumps({"sources": [rom], "map": {"collection/atari2600": "cat:atari2600"}}))
+    server, c = env.start()
+    d = c.get("/api/romm").get_json()
+    assert {r["path"]: r for r in d["rows"]}["collection/atari2600"]["value"] == "atari2600"
+    assert '"atari2600":' in d["outputs"]["config"], "it has a subfolder: categories"
 
 
 def test_first_romm_version_with_one_source_is_converted(env):

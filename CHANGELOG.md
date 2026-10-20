@@ -5,6 +5,25 @@ release. Newest first.
 
 ## [Unreleased]
 
+## [1.0.10] - 2026-10-20
+
+### Changed
+- **RomM platforms are bind mounts.** Every folder with a platform is mounted under RomM's roms
+  folder with the platform's name (`amigacdtv` -> `roms/commodore-cdtv`), so RomM's roms folder only
+  holds valid platform folders. ROM Mapper keeps the list (`romm-mounts.tsv` in its config folder,
+  shown in the new **Mounts** tab); the new Unraid script `unraid/romm-mounts.sh` mounts them and
+  restarts RomM. `config.yml` no longer renames or excludes platforms (`system.platforms`,
+  `exclude.platforms`).
+- **Categories follow from the subfolders.** A platform whose subfolders belong to it
+  (`gbc/+translations`) gets `roms/{platform}/{game}` + `roms/{platform}/{category}/{game}` in
+  `filesystem.structure`, keyed by the platform. The *Subfolders are categories* choice is gone;
+  exclude a subfolder to keep it out.
+- Any folder can be a platform again, nested ones too (`Nintendo/Super Famicom`), and every
+  download folder is used.
+
+### New
+- A warning when a download folder is set to 1 level: its subfolders can't become categories.
+
 ## [1.0.9] - 2026-10-19
 
 ### Changed

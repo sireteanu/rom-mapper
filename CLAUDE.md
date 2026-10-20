@@ -1,7 +1,7 @@
 # ROM Mapper (rom-mapper)
 
-Web app that builds per-frontend folders of links into ROM folders, and tells RomM which of the
-folders is which platform (config.yml, no links). Flask + waitress, one page (`app/static/index.html`, no build step), Python 3.10+,
+Web app that builds per-frontend folders of links into ROM folders, and decides which folders are
+which RomM platform (bind-mounted by the host script unraid/romm-mounts.sh). Flask + waitress, one page (`app/static/index.html`, no build step), Python 3.10+,
 Docker (Unraid). See README.md for the full reference.
 
 **Linux + Docker only.** Paths are POSIX (`/`, no drive letters, no `os.sep` juggling) and the code
@@ -22,13 +22,14 @@ and tests create real symlinks - run the tests on Linux (CI: `.github/workflows/
   that working (`split_key`, `full_key`).
 - `links.py` only ever removes **symlinks** inside the mapping folder and folders left empty; never
   delete real files. `check_dest` must refuse dangerous mapping folders.
-- RomM (`romm.py`): ONE way - RomM reads the first download folder by name (no links, no modes;
-  don't bring platform links back without asking). Rows are `<root>/<path>`; RULES are keyed by the
-  path inside a root (`inner()`); only folders directly inside can be platforms; a user "exclude"
-  covers the subtree unless a subfolder has its own choice. Output: system.platforms (bindings),
-  exclude.platforms (left_out, matched against folder names), multi_file.names, and
-  filesystem.structure keyed by FOLDER name for `cat:<slug>` systems. `apply_links` (no targets)
-  only removes old links pointing into a root. RomM facts it relies on are in the module docstring.
+- RomM (`romm.py`): every folder with a platform is a bind mount named after the slug - the app
+  only writes the list (`romm-mounts.tsv`, `Mapping.mounts_tsv`); mounting and restarting RomM is the
+  host script's job (unraid/romm-mounts.sh) - the container must not mount or control Docker. No
+  platform links (apply_links with no targets only removes old ones), no system.platforms /
+  exclude.platforms. Categories are automatic: a platform with a MERGE child that has files gets
+  both templates in filesystem.structure, keyed by slug. Rows are `<root>/<path>`; RULES are keyed
+  by the path inside a root (`inner()`); a user "exclude" covers the subtree unless a subfolder has
+  its own choice. RomM facts it relies on are in the module docstring.
 - Older files must keep working: any change to stored formats gets a conversion and a case in
   `tests/test_upgrades.py` (rows without labels, the minutes/hours schedule, one-folder and Rom
   Sync `romm-mapper.json`). There is no CSV import or export (removed in 1.0.3) - don't add one
@@ -48,7 +49,7 @@ and tests create real symlinks - run the tests on Linux (CI: `.github/workflows/
   the page doesn't refresh while its tab is hidden; RomM's platform list comes from
   `/api/romm/platforms` once.
 - The container runs as 99:100 and sees one host folder at the same path; frontend links are
-  absolute. RomM gets no links: it reads its download folder by name (see romm.py's docstring).
+  absolute; RomM's folders are bind mounts made on the host (paths in romm-mounts.tsv are host paths).
 - Schedule settings are `scan_every`/`scan_unit` and `sync_every`/`sync_unit` (minutes, hours,
   days); `convert_schedule` upgrades the older `scan_interval_minutes`/`sync_interval_hours`.
 

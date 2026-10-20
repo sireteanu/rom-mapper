@@ -1,8 +1,8 @@
 # ROM Mapper
 
 ROM Mapper builds folder layouts for emulation frontends (Batocera/RGS, RetroBat, Knulli, ...)
-out of **links** into your ROM folders, and tells [RomM](https://github.com/rommapp/romm) which of
-your folders is which platform. Nothing is copied or moved: each frontend gets its own folder of
+out of **links** into your ROM folders, and gives [RomM](https://github.com/rommapp/romm) a roms
+folder of valid platform folders (bind mounts of your folders). Nothing is copied or moved: each frontend gets its own folder of
 links, named the way that frontend expects, pointing at the one copy of your files.
 
 It runs as a small web app in Docker on Linux (made for Unraid) and keeps the links up to date on
@@ -42,7 +42,7 @@ hosts aren't supported. The page has two tabs of equal standing: **Frontend link
 | Links | **Resync all** makes the mapping folder match the mapping: missing links are made, wrong ones corrected, unused ones removed - nothing else is touched, and frontends never see an empty folder. |
 | Status | Rows are marked *New* (on disk, not mapped yet), *Unmapped*, *Missing* (mapped, gone from disk). Filter by status, search, remove missing rows. Duplicate names for one frontend are highlighted (the first row gets the link). |
 | Schedule | Scan and resync each on their own interval, in minutes, hours or days (scans can add new folders automatically). |
-| RomM | Pick the RomM platform for each folder of your ROM folder; a generated `config.yml` renames folders to platforms, leaves out the rest and adds category levels where you want them. No links. |
+| RomM | Pick the RomM platform for any of your folders; ROM Mapper keeps a mount list for the Unraid script that bind-mounts them under RomM's roms folder by platform name, and a `config.yml` with category levels for platforms with subfolders. |
 | Storage | Everything is stored by the app in its config folder (JSON); no files to edit by hand. |
 
 ---
@@ -161,41 +161,53 @@ share folder, inside a source folder, or contain one.
 ## RomM
 
 RomM wants one folder per platform, named by its *slug* (`snes`, `psx`, ...), directly inside its
-roms folder. ROM Mapper lets RomM read your ROM folder as it is and writes the `config.yml` that
-tells RomM what your folders are. Nothing is moved and no links are made.
+roms folder. ROM Mapper decides which of your folders is which platform; a small script on the
+Unraid host **bind-mounts** each of them into a folder of its own that RomM uses as its roms folder:
 
-- **The download folder** is the folder RomM reads as its roms folder: in RomM's compose file, map
-  it as `/romm/library/roms` (e.g. `/path/to/roms:/romm/library/roms`, optionally `:ro`). Only the
-  first folder in the list is used, and only the folders directly inside it can be platforms.
-  It's read in the background with a progress bar; counts are reused for 30 s, after that only
-  folders whose date changed are listed again, with a full read every hour and on **Refresh**
-  (on shares spread over several disks a folder's date doesn't always change).
-- **Levels**: how deep the list goes (**1 level** = one row per system, and nothing inside is read).
-  **Never read folders named** (default `media`, `*` and `?` allowed) skips folders everywhere and
-  tells RomM to ignore them too. Excluded folders aren't read inside.
-- **The list** is a tree of the real folders, closed by default; folders that only hold other
-  folders are one line and have a picker too. **Find a folder** searches every path; at most 600
-  rows are drawn at once.
-- **Platforms**: folders named like a RomM platform (`snes`) get it automatically; pick the others
-  in the searchable picker (`amigacdtv` -> `commodore-cdtv`), or **exclude**. A system counts when it
-  or anything inside it has files. When two folders are set to one platform, the folder already named
-  like it wins, else the first by name; the other is left out.
-- **Categories**: *Subfolders are categories (games inside them)* in a system's picker - for systems
-  whose subfolders group games (`atari2600/Homebrew`). Leave it off where each subfolder **is** a
-  game (multi-disc), or RomM would read the discs as separate games.
-- **config.yml** - merge it into RomM's `config.yml`, restart RomM and scan:
-  - `system.platforms`: `"amigacdtv": "commodore-cdtv"` for every folder whose name isn't its platform
-    (plus `system.versions` for arcade boards RomM has no platform for);
-  - `exclude.platforms`: the folders without a platform or excluded (RomM matches these against
-    folder names);
-  - `exclude.roms.multi_file.names`: subfolders that aren't games - never-read names, firmware
-    (`BIOS`), raw dumps, your excludes inside a system;
-  - `filesystem.structure`: for systems with categories, `roms/{platform}/{game}` and
-    `roms/{platform}/{category}/{game}`, keyed by the **folder name** (RomM looks templates up by the
-    platform's folder). With both, every subfolder of that system is a category.
-- **Remove old platform links** (top right) appears while links an earlier version made are still in
-  the folder above the download folder; it removes only those links.
-- **RomM platforms list**: every platform RomM knows (slug, name, maker), searchable.
+```
+/path/to/shares/sets/romm/            <- RomM's roms folder (map it as /romm/library/roms)
+  commodore-cdtv/  = /path/to/roms/amigacdtv      (bind mount)
+  gbc/             = /path/to/roms/gbc
+  snes/            = /path/to/lolroms/Nintendo/Super Famicom
+```
+
+RomM sees plain folders with the right names - no renames, no platform excludes, nothing moved.
+
+- **Download folders**: any number; any folder in them can be a platform, nested ones too. Read
+  in the background with a progress bar; counts are reused for 30 s, after that only folders whose
+  date changed are listed again, with a full read every hour and on **Refresh**.
+- **Levels**: how deep the list goes. Use at least **2 levels** where systems have subfolders
+  (`gbc/+translations`): at 1 level subfolders aren't read and can't become categories (a warning
+  says so). **Never read folders named** (default `media`) skips folders everywhere and tells RomM to
+  ignore them too. Excluded folders aren't read inside.
+- **Platforms**: folders named like a RomM platform get it automatically, lolroms' tree has built-in
+  rules; pick the rest in the searchable picker, or **exclude**. A platform counts when it or anything
+  below it has files. Two folders for one platform: the one named like it wins, else the shallower,
+  else the first by name (a warning names both).
+- **Categories**: a platform whose subfolders belong to it (*category of gbc* in the list) gets
+  `roms/{platform}/{game}` and `roms/{platform}/{category}/{game}`, keyed by the platform. Every such
+  subfolder is then a category - exclude (or never-read) the ones that aren't, like `images` or
+  `manuals`. A subfolder that is a platform of its own (lolroms' `Satellaview`) gets its own mount.
+- **Mounts** tab: the list ROM Mapper keeps in `romm-mounts.tsv` in its config folder (source folder,
+  tab, platform), rewritten whenever it changes.
+- **config.yml**: merge into RomM's `config.yml` and restart RomM - `filesystem.structure` (default,
+  firmware, the platforms with categories), `exclude.roms.multi_file.names` (subfolders that aren't
+  games: never-read names, firmware, raw dumps, your excludes, platforms of their own) and
+  `system.versions` for arcade boards RomM has no platform for.
+
+### The Unraid script
+
+[`unraid/romm-mounts.sh`](unraid/romm-mounts.sh) runs on the host (Settings > User Scripts), because
+mounting needs root and RomM has to be restarted to see new mounts - not something a web app should
+do. Set `MOUNTS_FILE` (ROM Mapper's config folder + `/romm-mounts.tsv`), `DEST_PATH` (a folder of
+its own) and `CONTAINER_NAME`, and schedule it **At Startup of Array** (mounts don't survive a
+reboot); run it again after changing the RomM mapping. It stops RomM, unmounts its earlier mounts,
+removes only the empty mount folders, mounts each platform (skipping missing folders and names that
+aren't platforms) and starts RomM again - also when something fails. In RomM's compose file:
+`- /path/to/shares/sets/romm:/romm/library/roms`.
+
+Older versions made platform links next to the download folders: **Remove old platform links** (top
+right) appears while any are left and removes only those.
 
 RomM facts this relies on are listed in `app/romm.py`'s docstring - re-check them when RomM changes.
 
@@ -210,7 +222,8 @@ All in the config folder (`/config` in Docker):
 | `rom-mapper-mapping.json` | The mapping: frontends (name, media toggle, media location) and rows (folder, one name per frontend) |
 | `rom-mapper-mapping.json.bak` | The previous version, written on every save |
 | `rom-mapper-state.json` | Source folders, schedule settings (`scan_every` / `scan_unit`, `sync_every` / `sync_unit`; units `minutes`, `hours`, `days`), last scan and last resync |
-| `romm-mapper.json` | RomM: download folders (`sources`), levels per folder (`depths`, only those not set to all), folder names never read (`skip_names`; missing = `["media"]`), your choices (`map`, by `<download folder>/<path>`: a slug, `cat:<slug>` for categories, `exclude`, ...). Settings of the platform-links versions (`links_dir`, `keep_links`, `romm_folder`, `layout`, `variants`, `mode`) are ignored |
+| `romm-mounts.tsv` | The RomM mount list for `unraid/romm-mounts.sh`: one line per platform, source folder TAB platform (written by the app) |
+| `romm-mapper.json` | RomM: download folders (`sources`), levels per folder (`depths`, only those not set to all), folder names never read (`skip_names`; missing = `["media"]`), your choices (`map`, by `<download folder>/<path>`: a slug, `exclude`, ...; 1.0.9's `cat:<slug>` reads as the slug). Settings of the platform-links versions (`links_dir`, `keep_links`, `romm_folder`, `layout`, `variants`, `mode`) are ignored |
 
 Files are written to a temporary file first and then swapped in, so a crash never leaves half a
 file. Environment variables: `CONFIG_DIR` (default `/config`), `SRC_BASE` (first source folder(s),
@@ -254,7 +267,7 @@ JSON throughout; the page uses nothing else.
 | `PUT /api/settings` | Schedule settings |
 | `GET /api/activity` | Recent events |
 | `GET /api/romm/platforms` | RomM's platform list (`slugs`), loaded once by the page |
-| `GET /api/romm` · `PUT /api/romm/options` · `PUT /api/romm/map {path, action}` · `POST /api/romm/links` | RomM dialog data, options/download folders/`depths` (`{folder: 1-6}`, 0 = all)/`skip_names` (list or comma-separated text), a folder's choice (`cat:<slug>` = categories), remove old platform links (`POST /api/romm/links`; `old_links` in the data says how many). When the folders need a full read, `GET /api/romm` and `PUT /api/romm/options` start it in the background and answer `{reading: {...}}` instead of the rows |
+| `GET /api/romm` · `PUT /api/romm/options` · `PUT /api/romm/map {path, action}` · `POST /api/romm/links` | RomM dialog data, options/download folders/`depths` (`{folder: 1-6}`, 0 = all)/`skip_names` (list or comma-separated text), a folder's choice, remove old platform links (`POST /api/romm/links`; `old_links` in the data says how many). When the folders need a full read, `GET /api/romm` and `PUT /api/romm/options` start it in the background and answer `{reading: {...}}` instead of the rows |
 | `GET /api/romm/progress` | The background read: `running`, `source` / `sources` (folder N of M), `path`, `done` / `total` (folders directly inside it), `current`, `error` |
 
 ---
@@ -265,13 +278,14 @@ JSON throughout; the page uses nothing else.
 app/server.py     Flask app: settings, mapping storage, source folders, scan, resync,
                   scheduler, RomM endpoints; `python server.py --resync` for a one-off resync
 app/links.py      the link engine: desired links from the mapping, apply only the differences
-app/romm.py       RomM mapping (folder roles, platforms by folder name, categories, config.yml,
-                  removing old links); romm_slugs.py = RomM's platform list (vendored)
+app/romm.py       RomM mapping (folder roles, platforms as mounts, categories, mount list,
+                  config.yml, removing old links); romm_slugs.py = RomM's platform list (vendored)
 app/version.py    __version__ (shown in the page, used for releases)
 app/static/index.html   the whole page (HTML, CSS, JS; no build step)
 tests/            pytest: test_mapping, test_romm, test_upgrades (temporary folders only)
 .github/workflows tests.yml (every push), release.yml (a release per new version)
-unraid/           docker-compose.yml for Unraid's Compose Manager (builds from GitHub)
+unraid/           docker-compose.yml for Unraid's Compose Manager (builds from GitHub),
+                  romm-mounts.sh (User Scripts: bind-mounts the RomM platforms)
 ```
 
 ---

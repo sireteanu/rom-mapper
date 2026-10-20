@@ -1,4 +1,4 @@
-"""The RomM section: download folders, platforms by folder name, categories, exclude, config.yml."""
+"""The RomM section: download folders, platforms as bind mounts, categories, exclude, config.yml."""
 import json
 import os
 
@@ -286,74 +286,85 @@ def test_big_answers_are_compressed(env):
 def collection(env):
     """A RomM-style collection: one folder per system, some named like a RomM platform."""
     rom = env.path("roms", "collection")
-    make_dirs(rom, "snes", "snes/media/box2d", "amigacdtv", "psx/Game A", "junk", "exodos/eXo/G1",
-              "atari2600", "atari2600/Homebrew", "atari2600/Hacks", "sfc", "dc/BIOS")
+    make_dirs(rom, "snes", "snes/media/box2d", "amigacdtv", "gbc", "gbc/+translations", "junk",
+              "exodos/eXo/G1", "dc", "dc/BIOS", "sfc")
     server, c = env.start()
     c.put("/api/romm/options", json={"sources": [rom]})
     c.put("/api/romm/map", json={"path": "collection/amigacdtv", "action": "commodore-cdtv"})
     c.put("/api/romm/map", json={"path": "collection/exodos", "action": "exclude"})
-    c.put("/api/romm/map", json={"path": "collection/dc", "action": "dc"})
     return server, c, rom
 
 
-def test_config_yml_names_folders_and_leaves_out_the_rest(env):
+def mounts(d):
+    """{platform: source folder} from the mount list."""
+    out = {}
+    for line in d["outputs"]["mounts"].splitlines():
+        if line and not line.startswith("#"):
+            src, slug = line.split("\t")
+            out[slug] = src
+    return out
+
+
+def test_every_platform_folder_is_a_mount(env):
     server, c, rom = collection(env)
     d = c.get("/api/romm").get_json()
-    assert "compose" not in d["outputs"], "RomM's compose line is yours to write"
-    y = d["outputs"]["config"]
-    system, rest = y.split("exclude:")
-    assert '"amigacdtv": "commodore-cdtv"' in system, "a renamed folder is bound to its platform"
-    assert '"snes"' not in system and '"psx"' not in system, "folders named like a platform need nothing"
-    left_out = rest.split("roms:")[0]
-    assert '- "junk"' in left_out and '- "exodos"' in left_out, "no platform or excluded: left out"
-    assert '"psx"' not in left_out, "psx's games are all in subfolders - it still counts"
-    games = rest.split("roms:")[1]
-    assert '- "media"' in games, "never-read names are ignored by RomM too"
-    assert '- "BIOS"' in games, "a firmware folder inside a system isn't read as a game"
-    assert "filesystem:" not in y, "no categories chosen: RomM's own layout"
+    m = mounts(d)
+    assert m == {"snes": os.path.join(rom, "snes"), "commodore-cdtv": os.path.join(rom, "amigacdtv"),
+                 "gbc": os.path.join(rom, "gbc"), "dc": os.path.join(rom, "dc")}, "junk and exodos aren't"
     r = rows(d)
-    assert r["collection/amigacdtv"]["value"] == "commodore-cdtv" and r["collection/amigacdtv"]["used"]
-    assert r["collection/amigacdtv"]["top"] and not r.get("collection/snes/media/box2d")
-    assert d["links"] == {"roots": ["collection"]} and d["old_links"] == 0
+    assert r["collection/amigacdtv"]["used"] and r["collection/gbc/+translations"]["category"]
+    with open(d["mounts_file"], encoding="utf-8") as f:
+        assert f.read() == d["outputs"]["mounts"], "written to the config folder for the host script"
+    assert d["mounts_file"] == os.path.join(env.config, "romm-mounts.tsv")
+    # a choice changes the file
+    c.put("/api/romm/map", json={"path": "collection/junk", "action": "psx"})
+    with open(d["mounts_file"], encoding="utf-8") as f:
+        assert f"{os.path.join(rom, 'junk')}\tpsx" in f.read()
 
 
-def test_subfolders_as_categories(env):
-    """atari2600/Homebrew and atari2600/Hacks are categories: both templates, keyed by the folder."""
+def test_config_yml_has_categories_for_platforms_with_subfolders(env):
+    """gbc/+translations belongs to gbc: gbc gets the category template, keyed by the slug."""
     server, c, rom = collection(env)
-    d = c.put("/api/romm/map", json={"path": "collection/atari2600", "action": "cat:atari2600"}).get_json()
-    assert rows(d)["collection/atari2600"]["value"] == "cat:atari2600"
-    y = d["outputs"]["config"]
-    fs = y.split("filesystem:")[1]
-    assert "default: 'roms/{platform}/{game}'" in fs and "firmware: 'bios/{platform}'" in fs
-    assert '"atari2600":\n      - \'roms/{platform}/{game}\'\n      - \'roms/{platform}/{category}/{game}\'' in fs
-    # a renamed folder is keyed by its folder name - RomM looks templates up by folder
-    d = c.put("/api/romm/map", json={"path": "collection/amigacdtv", "action": "cat:commodore-cdtv"}).get_json()
-    fs = d["outputs"]["config"].split("filesystem:")[1]
-    assert '"amigacdtv":' in fs and '"commodore-cdtv":' not in fs
-    assert '"amigacdtv": "commodore-cdtv"' in d["outputs"]["config"], "and still renamed"
-    # back to plain games
-    d = c.put("/api/romm/map", json={"path": "collection/atari2600", "action": ""}).get_json()
-    assert rows(d)["collection/atari2600"]["value"] == "atari2600"
-    assert c.put("/api/romm/map", json={"path": "collection/atari2600", "action": "cat:Not Valid"}).status_code == 400
+    y = c.get("/api/romm").get_json()["outputs"]["config"]
+    fs = y.split("exclude:")[0]
+    assert 'default: "roms/{platform}/{game}"' in fs and 'firmware: "bios/{platform}"' in fs
+    assert '"gbc":\n      - "roms/{platform}/{game}"\n      - "roms/{platform}/{category}/{game}"' in fs
+    assert '"snes":' not in fs and '"commodore-cdtv":' not in fs, "no subfolders of their own (media isn't read)"
+    assert "\nsystem:" not in y and "  platforms:" not in y, "no renames or platform excludes"
+    names = y.split("names:")[1]
+    assert '- "media"' in names and '- "BIOS"' in names, "not games"
+    # excluding the subfolder: no category any more
+    d = c.put("/api/romm/map", json={"path": "collection/gbc/+translations", "action": "exclude"}).get_json()
+    assert '"gbc":' not in d["outputs"]["config"].split("exclude:")[0]
+    assert '- "+translations"' in d["outputs"]["config"]
 
 
-def test_two_folders_with_one_platform_keep_the_first(env):
+def test_two_folders_with_one_platform_keep_the_one_named_like_it(env):
     server, c, rom = collection(env)
     d = c.put("/api/romm/map", json={"path": "collection/sfc", "action": "snes"}).get_json()
-    r = rows(d)
-    assert r["collection/sfc"]["conflict"] == "collection/snes"
-    assert '- "sfc"' in d["outputs"]["config"].split("exclude:")[1]
+    assert mounts(d)["snes"] == os.path.join(rom, "snes")
+    assert rows(d)["collection/sfc"]["conflict"] == "collection/snes"
     assert any("both set to snes" in w for w in d["warnings"])
 
 
-def test_nested_platforms_and_more_download_folders_are_explained(env):
-    """RomM reads one folder by name: lolroms' nested platforms can't be platforms there."""
+def test_nested_folders_and_several_download_folders_are_mounted(env):
+    """lolroms' Nintendo/Super Famicom can be a platform too; a subfolder that is its own platform
+    (Satellaview) is a mount of its own and left out of its parent's games."""
     server, c, d, lol, rom = setup(env)
-    r = rows(d)
-    assert "directly inside" in r["lolroms/Nintendo/Super Famicom"]["note"]
-    assert any("only the first download folder" in w for w in d["warnings"])
-    assert any("deeper folders have a platform" in w for w in d["warnings"])
-    assert not any(row["root"] == "collection" and row["used"] for row in d["rows"]), "the second one is not read by RomM"
+    m = mounts(d)
+    assert m["satellaview"] == os.path.join(lol, "Nintendo", "Super Famicom", "Satellaview")
+    assert m["snes"] == os.path.join(rom, "snes"), "collection/snes is named like the platform: it wins"
+    assert m["n64"] == os.path.join(rom, "n64")
+    assert rows(d)["lolroms/Nintendo/Super Famicom"]["conflict"] == "collection/snes"
+    assert '- "Satellaview"' in d["outputs"]["config"]
+
+
+def test_one_level_warns_about_categories(env):
+    server, c, rom = collection(env)
+    d = c.put("/api/romm/options", json={"depths": {rom: 1}}).get_json()
+    assert any("1 level" in w and "+translations" in w for w in d["warnings"])
+    assert '"gbc":' not in d["outputs"]["config"].split("exclude:")[0], "subfolders weren't read"
+
 
 
 def test_old_platform_links_are_removed_and_nothing_else(env):
@@ -370,3 +381,4 @@ def test_old_platform_links_are_removed_and_nothing_else(env):
     assert sorted(d["applied"]["removed"]) == ["commodore-cdtv", "snes"] and d["old_links"] == 0
     assert os.readlink(os.path.join(links, "psx")) == "/somewhere/else"
     assert os.path.isdir(os.path.join(links, "gb")) and os.path.isdir(os.path.join(rom, "amigacdtv"))
+

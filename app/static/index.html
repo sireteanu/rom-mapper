@@ -280,11 +280,12 @@
 </main>
 
 <main id="paneRomm" class="romm" hidden>
-  <p class="intro">Pick the RomM platform for each folder in your download folder. RomM reads that folder
-    directly: folders named like a platform (<code>snes</code>) need nothing, others are renamed in RomM's
-    <code>config.yml</code> (<code>amigacdtv</code> &rarr; <code>commodore-cdtv</code>), and folders without a platform are
-    left out. Nothing is moved or copied. Copy the config into RomM's <code>config.yml</code>, restart RomM and scan its
-    library.</p>
+  <p class="intro">Pick the RomM platform for each of your folders. Each folder with a platform is
+    <b>bind-mounted</b> under RomM's roms folder with the platform's name (<code>amigacdtv</code> &rarr;
+    <code>roms/commodore-cdtv</code>) by the Unraid script <code>romm-mounts.sh</code>, from the <b>Mounts</b> list
+    ROM Mapper keeps. Subfolders that belong to a platform (<code>gbc/+translations</code>) become categories in
+    <code>config.yml</code>. Nothing is moved or copied. Run the script, merge the config into RomM's
+    <code>config.yml</code>, and scan RomM's library.</p>
   <div class="field"><span>Download folders</span>
     <div id="rSources" class="sources"></div>
     <div class="srcadd"><input type="text" id="rSourceNew" placeholder="/path/to/downloads">
@@ -294,8 +295,8 @@
       <div class="ptext"></div>
       <div class="pbar" role="progressbar" aria-label="Reading the download folders" aria-valuemin="0" aria-valuemax="100"><div class="pfill"></div></div>
     </div>
-    <small>RomM reads one folder (its <code>roms</code> folder): the first one in this list. In RomM's compose file,
-      map it as <code>/romm/library/roms</code>. Only the folders directly inside it can be platforms.
+    <small>Any folder in these download folders can be a platform, also nested ones
+      (<code>Nintendo/Super Famicom</code>). When two folders get the same platform, the one named like it wins.
       <b>Levels</b>: how deep the list goes. <b>1 level</b> suits a folder with one folder per system (everything inside a
       system goes with it and isn't read, which is much faster); more levels show the subfolders, e.g. to exclude some.
       Folders must be mounted into this container at the same path.</small></div>
@@ -319,7 +320,7 @@
     </section>
     <section>
       <div class="bar">
-        <div class="tabs"><button class="tab on" data-out="config">config.yml</button></div>
+        <div class="tabs"><button class="tab on" data-out="config">config.yml</button><button class="tab" data-out="mounts">Mounts</button></div>
         <button id="rCopy">Copy</button>
         <button class="ref-btn" data-out="list" title="Every platform RomM knows">RomM platforms list</button>
       </div>
@@ -756,7 +757,8 @@ $("srcSave").onclick = async () => {
   const q = (sel, el = document) => el.querySelector(sel);
   const num = (n) => (n || 0).toLocaleString();
   const HELP = {
-    config: "Merge into RomM's config.yml (in its /romm/config folder), keeping your other settings.",
+    config: "Merge into RomM's config.yml (in its /romm/config folder), keeping your other settings, then restart RomM.",
+    mounts: "",
   };
   let R = null, tab = "config", outTab = "config";
   const pending = {};
@@ -770,12 +772,6 @@ $("srcSave").onclick = async () => {
     const out = [];
     if (r.action) out.push({ v: "", t: r.auto ? `automatic: ${label(r.auto)}` : "no platform (remove your choice)", k: "automatic remove clear" });
     else if (cur === "") out.push({ v: "", t: label(""), k: "pick" });
-    if (r.top && r.kind === "platform") {        // a system: its subfolders can be categories
-      const slug = cur.startsWith("cat:") ? cur.slice(4) : cur;
-      out.push(cur.startsWith("cat:")
-        ? { v: slug, t: "Subfolders are games again (no categories)", k: "categories games subfolders" }
-        : { v: "cat:" + slug, t: "Subfolders are categories (games inside them)", k: "categories games subfolders" });
-    }
     if (cur === "firmware" || r.auto === "firmware") out.push({ v: "firmware", t: label("firmware"), k: "firmware bios" });
     out.push({ v: "exclude", t: label("exclude"), k: "exclude leave out skip" });
     for (const p of R.slugs) out.push({ v: p.slug, t: `${p.slug} - ${p.name}`, fam: p.family, k: `${p.slug} ${p.name} ${p.family}`.toLowerCase() });
@@ -847,9 +843,12 @@ $("srcSave").onclick = async () => {
     inp.focus();
   }
   function result(r) {
-    if (r.kind === "platform") return [!r.used ? `${r.slug} (no files yet)` : r.value.startsWith("cat:")
-      ? `in RomM as ${r.slug}, subfolders are categories` : `in RomM as ${r.slug}`, r.custom ? "warn" : "ok"];
-    if (r.kind === "merge") return [r.used ? `part of ${r.slug}` : `part of ${r.slug} (no files yet)`, "ok"];
+    if (r.kind === "platform") {
+      if (!r.used) return [`${r.slug} (no files yet)`, "warn"];
+      const p = (R.platforms || []).find(x => x.mount === r.path);
+      return [`mounted as roms/${r.slug}` + (p && p.categories ? ", subfolders are categories" : ""), r.custom ? "warn" : "ok"];
+    }
+    if (r.kind === "merge") return [r.category ? `category of ${r.slug}` : r.used ? `part of ${r.slug}` : `part of ${r.slug} (no files yet)`, "ok"];
     if (r.kind === "bios") return [`firmware: bios/${r.slug}`, "ok"];
     if (r.kind === "skip") return ["left out of RomM", "none"];
     return ["no platform", "bad"];
@@ -987,7 +986,7 @@ $("srcSave").onclick = async () => {
       if (r.group) {                  // a folder that only holds other folders
         [text, cls] = r.value === "exclude" ? ["left out of RomM, with everything inside", "none"]
           : r.value ? [`${r.value} for the folders inside`, "ok"]
-          : ["left out of RomM (no platform)", "none"];
+          : ["folder", "none"];
       }
       if (r.note) { text = r.note; cls = "warn"; }
       else if (r.conflict) { text = `left out (${r.conflict.split("/").pop()} is ${r.slug})`; cls = "warn"; }
@@ -1013,6 +1012,9 @@ $("srcSave").onclick = async () => {
     const isList = tab === "list";
     $("rOut").hidden = isList; $("rList").hidden = !isList; $("rCopy").hidden = isList;
     if (isList) renderList(); else $("rOut").textContent = d.outputs[tab] || "";
+    HELP.mounts = `ROM Mapper keeps this list in ${d.mounts_file || "its config folder"} (its config folder). `
+      + "On Unraid, unraid/romm-mounts.sh mounts each folder at <RomM's roms folder>/<platform> and restarts RomM - "
+      + "run it at array start and after you change something here.";
     $("rHelp").textContent = isList ? "" : HELP[tab];
     $("rApply").hidden = !d.old_links;
     if (d.old_links) $("rApply").textContent = `Remove ${num(d.old_links)} old platform link${d.old_links === 1 ? "" : "s"}`;

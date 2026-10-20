@@ -1,27 +1,27 @@
-"""RomM mapping: tell RomM which of your folders is which platform, without moving any files.
+"""RomM mapping: which of your folders is which RomM platform, without moving any files.
 
 Moved here from Rom Sync (sireteanu/rom-sync, src/lolroms_sync/romm.py, v1.3.4); the rules and the
 romm-mapper.json format are the same, so choices made in Rom Sync carry over.
 
-RomM reads the download folder itself as its roms folder: each folder directly inside it is a
-platform folder. Folders named like a RomM platform (snes) are found on their own; the others are
-bound to their platform in config.yml (system.platforms: "amigacdtv": "commodore-cdtv"), and the
-folders that aren't platforms are left out (exclude.platforms - RomM matches these against folder
-names). A system whose subfolders are categories rather than games ("cat:<slug>") gets
-filesystem.structure templates roms/{platform}/{game} + roms/{platform}/{category}/{game}, keyed by
-its folder name. Subfolders that aren't games (never-read names, BIOS, raw dumps, your excludes)
-go into exclude.roms.multi_file.names. No links: older versions made platform links, and
-apply_links (with no targets) removes the ones it made.
+Every folder with a platform becomes a bind mount named after the platform: ROM Mapper writes the
+list (romm-mounts.tsv: source folder <TAB> platform slug) and the host script unraid/romm-mounts.sh
+mounts each folder at <RomM's roms folder>/<slug>, then restarts RomM. So RomM's roms folder only
+holds valid platform folders, under their slugs - no renames or platform excludes needed - and a
+platform can be any folder (lolroms' Nintendo/Super Famicom too). A platform with subfolders that
+belong to it (+translations under gbc) gets filesystem.structure templates
+roms/{platform}/{game} + roms/{platform}/{category}/{game}, keyed by the slug (= the mount's folder
+name). Subfolders that aren't games (never-read names, BIOS, raw dumps, your excludes, folders that
+are a platform of their own) go into exclude.roms.multi_file.names. Older versions made platform
+links; apply_links (with no targets) removes the ones they made.
 
-Per folder an action decides what happens: a RomM slug, "cat:<slug>" (a platform whose
-subfolders are categories), "merge" (into the platform above), "bios:<slug>" (firmware), "skip",
-"exclude", or nothing (the built-in rule, else inherited).
-RomM facts this relies on (backend/, Oct 2026): config_manager reads system.platforms
-(folder -> slug, keys lowercased), exclude.platforms (matched with fnmatch against the folder
-names), filesystem.structure (keyed by the platform's fs_slug = its folder name; str or list);
-roms_handler unions the templates and drops a folder-game that another template descends
-through, so with both templates every subfolder is a category; exclude multi_file names apply
-at wildcard levels ({category}); scanning lists folders with os.walk.
+Per folder an action decides what happens: a RomM slug, "merge" (into the platform above),
+"bios:<slug>" (firmware), "skip", "exclude", or nothing (the built-in rule, else inherited).
+"cat:<slug>" (1.0.9) is read as <slug>: categories now follow from the subfolders.
+RomM facts this relies on (backend/, Oct 2026): filesystem.structure is keyed by the platform's
+fs_slug (its folder name), str or list; roms_handler unions the templates and drops a folder-game
+that another template descends through, so with both templates every subfolder is a category;
+exclude multi_file names apply at wildcard levels ({category}); RomM sees a bind mount as a plain
+folder (a container gets the mounts under its volume when it starts - hence the restart).
 """
 from __future__ import annotations
 
@@ -211,9 +211,6 @@ class Mapping:
         self.base = os.path.abspath(links_dir) if links_dir else ""
         self.user = {k: v for k, v in (self.opt.get("map") or {}).items() if v}
         self.res: dict = {}          # path -> dict(kind, slug, source[, cats])
-        self.bindings: dict = {}     # {folder name: platform slug} for system.platforms
-        self.left_out: list = []     # folders directly inside that aren't platforms
-        self.deep: list = []         # deeper folders with a platform (RomM can't read those)
         self.lost: dict = {}         # folder -> the folder that has its platform already
         self._resolve()
         self._group()
@@ -254,12 +251,6 @@ class Mapping:
         r = self.root_of(path)
         return path[len(r) + 1:] if r and path != r else ""
 
-    def top_of(self, path: str) -> Optional[str]:
-        """The folder directly inside the first download folder that path is in (or is)."""
-        if not self.roots or not path.startswith(self.roots[0] + "/"):
-            return None
-        return self.roots[0] + "/" + path[len(self.roots[0]) + 1:].split("/")[0]
-
     def _decide(self, path: str, action: str, source: str, up: Optional[dict]) -> dict:
         r = {"kind": UNMAPPED, "slug": "", "source": source if action else "auto"}
         if action == "skip":
@@ -271,8 +262,8 @@ class Mapping:
                 r.update(kind=MERGE, slug=up["slug"])
         elif action.startswith("bios:"):
             r.update(kind=BIOS, slug=action[5:])
-        elif action.startswith("cat:"):
-            r.update(kind=PLATFORM, slug=action[4:], cats=True)
+        elif action.startswith("cat:"):           # 1.0.9: categories now follow from the subfolders
+            r.update(kind=PLATFORM, slug=action[4:])
         elif action:
             r.update(kind=PLATFORM, slug=action)
         elif up and up["kind"] in (PLATFORM, MERGE):
@@ -293,10 +284,8 @@ class Mapping:
 
     @staticmethod
     def choice(r: dict) -> str:
-        """How a folder's role is shown in its picker: a platform slug ("cat:<slug>" when its
-        subfolders are categories), "exclude", "firmware" (BIOS folders, automatic) or "" (none)."""
-        if r["kind"] == PLATFORM and r.get("cats"):
-            return "cat:" + r["slug"]
+        """How a folder's role is shown in its picker: a platform slug, "exclude", "firmware" (BIOS
+        folders, automatic) or "" (none)."""
         if r["kind"] in (PLATFORM, MERGE):
             return r["slug"]
         if r["kind"] == SKIP:
@@ -306,11 +295,11 @@ class Mapping:
         return ""
 
     def excluded_names(self) -> list:
-        """Names of subfolders inside a platform that aren't games - excluded by you, skipped by
-        name (raw dumps) or firmware: written to RomM's exclude.roms.multi_file.names."""
+        """Names of subfolders inside a platform that aren't its games - excluded by you, skipped by
+        name (raw dumps), firmware, or a platform of their own: exclude.roms.multi_file.names."""
         out = set()
         for p, r in self.res.items():
-            if r["kind"] in (SKIP, BIOS) and not r.get("inherited"):
+            if r["kind"] in (SKIP, BIOS, PLATFORM) and not r.get("inherited"):
                 up = self.res.get(parent_of(p))
                 if up and up["kind"] in (PLATFORM, MERGE):
                     out.add(name_of(p))
@@ -326,44 +315,50 @@ class Mapping:
 
     # ------------------------------------------------------------------ platforms
     def _group(self):
-        """Each folder directly inside the (first) download folder is a platform when it has one,
-        under its own name - system.platforms binds the name to a slug when they differ. The
-        other folders directly inside are left out. A platform folder counts if it or anything
-        inside it has files (one folder per game)."""
+        """Every folder with a platform (and files in it or below) becomes a mount named after the
+        platform. Two folders for one platform: the one already named like it wins, else the
+        shallower, else the first by name. A platform whose subfolders belong to it (merged, with
+        files) gets categories."""
         self.platforms, self.firmware = [], []
-        if not self.roots:
-            return
-        root = self.roots[0]
         col = 1 if self.opt["only_synced"] else 0
-        totals: dict = {}
+        self.tree: dict = {}                     # path -> files in it and everything below
         for p in self.folders:
-            top = self.top_of(p)
-            if top:
-                totals[top] = totals.get(top, 0) + self._counts(p)[col]
+            n = self._counts(p)[col]
+            q = p
+            while True:
+                self.tree[q] = self.tree.get(q, 0) + n
+                if not q:
+                    break
+                q = parent_of(q)
+        cands = [p for p, r in self.res.items() if r["kind"] == PLATFORM and self.root_of(p) not in (None, p)
+                 and self.tree.get(p)]
+        cands.sort(key=lambda p: (name_of(p) != self.res[p]["slug"], p.count("/"), p.casefold()))
         taken: dict = {}
-        # when two folders give one platform, the folder already named like it wins (snes over
-        # sfc), else the first by name
-        order = sorted(self.children(root), key=lambda t: (name_of(t) != self.res[t]["slug"], t.casefold()))
-        for top in order:
-            r, name = self.res[top], name_of(top)
-            if r["kind"] != PLATFORM or not totals.get(top):
-                self.left_out.append(name)
+        for p in cands:
+            slug = self.res[p]["slug"]
+            if slug in taken:
+                self.lost[p] = taken[slug]
                 continue
-            if r["slug"] in taken:                 # two folders, one platform: the first one wins
-                self.lost[top] = taken[r["slug"]]
-                self.left_out.append(name)
-                continue
-            taken[r["slug"]] = top
-            if name != r["slug"]:
-                self.bindings[name] = r["slug"]
-            self.platforms.append({"slug": r["slug"], "folder": name, "mount": top, "folders": [top],
-                                   "categories": bool(r.get("cats")), "files": totals[top]})
-        self.deep = sorted((p for p, r in self.res.items()
-                            if r["kind"] == PLATFORM and p.startswith(root + "/")
-                            and p.count("/") > root.count("/") + 1 and self._uses(p)), key=str.casefold)
-        used = {p["mount"] for p in self.platforms}
+            taken[slug] = p
+            cats = any(self.res[k]["kind"] == MERGE and self.tree.get(k) for k in self.children(p))
+            self.platforms.append({"slug": slug, "mount": p, "folders": [p], "categories": cats,
+                                   "files": self.tree[p]})
+        self.platforms.sort(key=lambda x: x["slug"])
+        self.mounted = {x["mount"]: x for x in self.platforms}
         self.firmware = sorted(p for p, r in self.res.items()
-                               if r["kind"] == BIOS and self._uses(p) and self.top_of(p) in used)
+                               if r["kind"] == BIOS and self._uses(p) and self.platform_of(p) in self.mounted)
+
+    def platform_of(self, path: str) -> Optional[str]:
+        """The folder whose platform path is part of: itself, or the nearest platform above it."""
+        q = path
+        while q:
+            r = self.res.get(q)
+            if r and r["kind"] == PLATFORM:
+                return q
+            if not r or r["kind"] not in (MERGE, BIOS, SKIP):
+                return None
+            q = parent_of(q)
+        return None
 
     def children(self, path):
         if not hasattr(self, "_kids"):
@@ -377,21 +372,20 @@ class Mapping:
     def rows(self) -> list:
         """One row per folder that holds files (or has a rule of its own), for the interface."""
         out = []
-        used = {p["mount"] for p in self.platforms}
         for path in sorted(self.res, key=str.casefold):
             r = self.res[path]
             files, have = self._counts(path)
             if not files and path not in self.user and self.inner(path) not in RULES and path not in self.roots:
                 continue
-            top = self.top_of(path)
+            owner = self.platform_of(path) if r["kind"] in (PLATFORM, MERGE) else None
             row = {"path": path, "files": files, "synced": have, "kind": r["kind"], "slug": r["slug"],
                    "excluded": bool(r.get("excluded")), "root": self.root_of(path),
                    "value": self.choice(r), "auto": self.choice(self.auto[path]),
                    "source": r["source"], "action": self.user.get(path, ""),
-                   "rule": RULES.get(self.inner(path), ""), "top": top == path,
-                   "used": r["kind"] in (PLATFORM, MERGE) and top in used}
-            if path in self.deep:
-                row["note"] = "only folders directly inside can be platforms"
+                   "rule": RULES.get(self.inner(path), ""),
+                   "used": owner in self.mounted}
+            if r["kind"] == MERGE and owner in self.mounted and parent_of(path) == owner:
+                row["category"] = True
             if path in self.lost:
                 row["conflict"] = self.lost[path]
             if r.get("excluded_tree"):
@@ -403,18 +397,14 @@ class Mapping:
 
     def warnings(self) -> list:
         w = []
-        if len(self.roots) > 1:
-            w.append("RomM reads one folder: only the first download folder is used.")
-        if self.left_out:
-            w.append(f"{len(self.left_out)} folders directly inside have no platform (or are excluded) and are "
-                     "left out of RomM: " + ", ".join(self.left_out[:6]) + (" ..." if len(self.left_out) > 6 else ""))
-        if self.deep:
-            w.append("Only the folders directly inside the download folder can be platforms; these deeper "
-                     "folders have a platform of their own and are ignored: "
-                     + ", ".join(self.deep[:6]) + (" ..." if len(self.deep) > 6 else ""))
+        unmapped = [p for p, r in self.res.items() if r["kind"] == UNMAPPED and self._uses(p)
+                    and self.platform_of(p) is None]
+        if unmapped:
+            w.append(f"{len(unmapped)} folders with files have no RomM platform and are left out: "
+                     + ", ".join(unmapped[:6]) + (" ..." if len(unmapped) > 6 else ""))
         for p, winner in self.lost.items():
-            w.append(f"{name_of(p)} and {name_of(winner)} are both set to {self.res[p]['slug']}: RomM gets "
-                     f"{name_of(winner)}, {name_of(p)} is left out.")
+            w.append(f"{p} and {winner} are both set to {self.res[p]['slug']}: RomM gets {winner}, "
+                     f"{p} is left out.")
         custom = sorted({p["slug"] for p in self.platforms if p["slug"] not in SLUGS})
         unknown = [s for s in custom if s not in VERSIONS]
         if unknown:
@@ -435,45 +425,40 @@ class Mapping:
         the links older versions made."""
         return {}
 
-    # ------------------------------------------------------------------ config.yml
+    # ------------------------------------------------------------------ outputs
+    def mounts_tsv(self) -> str:
+        """The mount list for unraid/romm-mounts.sh: one line per platform, the source folder (full
+        path - the same on the host) and the platform slug, tab-separated."""
+        lines = ["# ROM Mapper - RomM bind mounts: source folder<TAB>RomM platform. Written by ROM Mapper;",
+                 "# unraid/romm-mounts.sh mounts each folder at <RomM's roms folder>/<platform>."]
+        for p in self.platforms:
+            src = os.path.join(self.base, p["mount"]) if self.base else p["mount"]
+            lines.append(f"{src}\t{p['slug']}")
+        return "\n".join(lines) + "\n"
+
     def config_yml(self) -> str:
-        """system.platforms renames folders to platforms, exclude.platforms (matched against folder
-        names) leaves out the rest, filesystem.structure adds a category level to the systems whose
-        subfolders are categories (keyed by folder name), multi_file.names skips non-game folders."""
+        """filesystem.structure (with categories for the platforms whose subfolders belong to them,
+        keyed by slug = the mount's folder name), the subfolders that aren't games, system.versions."""
         q = lambda s: json.dumps(s, ensure_ascii=False)  # noqa: E731 - JSON strings are valid YAML
         lines = ["# RomM config.yml - generated by ROM Mapper. Merge these sections into your config.yml",
-                 "# (keep your other settings). RomM reads your folders by name; nothing is moved.", ""]
-        versions = {p["slug"]: VERSIONS[p["slug"]] for p in self.platforms if p["slug"] in VERSIONS}
-        if self.bindings or versions:
-            lines.append("system:")
-            if self.bindings:
-                lines += ["  # your folder name: the RomM platform it is",
-                          "  platforms:"] + [f"    {q(k)}: {q(v)}" for k, v in
-                                             sorted(self.bindings.items(), key=lambda kv: kv[0].casefold())]
-            if versions:
-                lines += ["  versions:"] + [f"    {q(k)}: {q(v)}" for k, v in versions.items()]
-            lines.append("")
-        out = sorted(set(self.left_out), key=str.casefold)
-        names = sorted(set(self.excluded_names()) | (set(self.opt.get("skip_names") or []) if self.platforms else set()),
-                       key=str.casefold)
-        if out or names:
-            lines.append("exclude:")
-            if out:
-                lines += ["  # folders without a platform (or excluded) - not platforms",
-                          "  platforms:"] + [f"    - {q(n)}" for n in out]
-            if names:
-                lines += ["  roms:", "    multi_file:", "      # subfolders that are not games",
-                          "      names:"] + [f"        - {q(n)}" for n in names]
-            lines.append("")
+                 "# (keep your other settings). The platform folders come from romm-mounts.sh.", "",
+                 "filesystem:", "  structure:", '    default: "roms/{platform}/{game}"',
+                 '    firmware: "bios/{platform}"']
         cats = [p for p in self.platforms if p["categories"]]
         if cats:
-            lines += ["filesystem:", "  structure:", "    default: 'roms/{platform}/{game}'",
-                      "    firmware: 'bios/{platform}'",
-                      "    # subfolders are categories (keyed by your folder name, as RomM looks them up)"]
-            for p in sorted(cats, key=lambda p: p["folder"].casefold()):
-                lines += [f"    {q(p['folder'])}:", "      - 'roms/{platform}/{game}'",
-                          "      - 'roms/{platform}/{category}/{game}'"]
-            lines.append("")
+            lines.append("    # subfolders of these platforms are categories (+translations, Homebrew ...)")
+            for p in cats:
+                lines += [f"    {q(p['slug'])}:", '      - "roms/{platform}/{game}"',
+                          '      - "roms/{platform}/{category}/{game}"']
+        lines.append("")
+        names = sorted(set(self.excluded_names()) | (set(self.opt.get("skip_names") or []) if self.platforms else set()),
+                       key=str.casefold)
+        if names:
+            lines += ["exclude:", "  roms:", "    multi_file:", "      # subfolders that are not games",
+                      "      names:"] + [f"        - {q(n)}" for n in names] + [""]
+        versions = {p["slug"]: VERSIONS[p["slug"]] for p in self.platforms if p["slug"] in VERSIONS}
+        if versions:
+            lines += ["system:", "  versions:"] + [f"    {q(k)}: {q(v)}" for k, v in versions.items()] + [""]
         return "\n".join(lines)
 
     def summary(self) -> dict:
