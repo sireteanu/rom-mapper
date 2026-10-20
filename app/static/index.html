@@ -187,6 +187,9 @@
     .romm .src .meta { margin-right: auto; }
   }
   .romm .srcadd { display: flex; gap: 6px; }
+  .romm .drop { border: 2px dashed var(--border); border-radius: 8px; padding: 12px; text-align: center; color: var(--muted);
+                 font-size: 13px; cursor: pointer; }
+  .romm .drop.over, .romm .drop:focus { border-color: var(--accent); color: var(--text); background: var(--new-bg); outline: none; }
   .romm .progress { border: 1px solid var(--accent); border-radius: 6px; padding: 8px 10px; margin: 6px 0; background: var(--new-bg); }
   .romm .progress .ptext { font-size: 13px; margin-bottom: 6px; overflow-wrap: anywhere; }
   .romm .progress .pbar { height: 8px; border-radius: 999px; background: var(--border); overflow: hidden; }
@@ -301,6 +304,12 @@
       Folders must be mounted into this container at the same path.</small></div>
   <p id="rError" class="bad" hidden></p>
   <p id="rApplied" class="hint" hidden></p>
+  <div class="field"><span>Import a RomM mapping (CSV)</span>
+    <div id="rDrop" class="drop" tabindex="0" role="button" aria-label="Import a RomM mapping CSV: drop the file here or press Enter to pick it">
+      Drop <code>Rom_Mapping_RomM.csv</code> here, or click to pick it
+      <input type="file" id="rDropFile" accept=".csv,text/csv" hidden></div>
+    <small>One-time import of the old <code>Folder,romm</code> file: each folder gets its RomM platform; rows without a
+      platform stay out of RomM. Saved straight away.</small></div>
   <label class="field"><span>Never read folders named</span>
     <input type="text" id="rSkip" placeholder="media, Extras">
     <small>Comma-separated folder names; <code>*</code> and <code>?</code> work (<code>*.bak</code>), case doesn't matter.
@@ -1117,6 +1126,29 @@ $("srcSave").onclick = async () => {
   let findTimer = null;
   $("rFind").addEventListener("input", () => { clearTimeout(findTimer); findTimer = setTimeout(render, 150); });
   $("rSkip").addEventListener("change", () => options({ skip_names: $("rSkip").value }));
+  // ---- one-time import of the old Rom_Mapping_RomM.csv
+  async function importCsv(file) {
+    if (!file) return;
+    try {
+      const res = await fetch("/api/romm/import", { method: "POST", headers: { "Content-Type": "text/csv" }, body: await file.text() });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || res.statusText);
+      const r = d.imported, lines = [`${file.name}: ${r.imported} folders mapped, ${r.already} already right, ${r.empty} without a platform (left out of RomM${r.excluded ? `; ${r.excluded} named like a platform were excluded` : ""}).`];
+      if (r.missing.length) lines.push(`Not found in your download folders (mapped anyway): ${r.missing.join(", ")}`);
+      if (r.custom.length) lines.push(`Not RomM platforms - RomM adds them as custom platforms: ${[...new Set(r.custom)].join(", ")}`);
+      if (r.invalid.length) lines.push(`Skipped (not a platform name): ${r.invalid.join(", ")}`);
+      loadR(d);
+      alert(lines.join("\n\n"));
+      loadActivity();
+    } catch (e) { alert("Could not import: " + e.message); }
+  }
+  const drop = $("rDrop");
+  drop.onclick = () => { $("rDropFile").value = ""; $("rDropFile").click(); };
+  drop.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); drop.onclick(); } };
+  $("rDropFile").onchange = () => importCsv($("rDropFile").files[0]);
+  drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); importCsv(e.dataTransfer.files[0]); });
   window.loadRomm = async () => {
     if (!R) $("rOut").textContent = "Loading…";
     try {

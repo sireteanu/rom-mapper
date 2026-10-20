@@ -396,3 +396,21 @@ def test_old_platform_links_are_removed_and_nothing_else(env):
     assert os.readlink(os.path.join(links, "psx")) == "/somewhere/else"
     assert os.path.isdir(os.path.join(links, "gb")) and os.path.isdir(os.path.join(rom, "amigacdtv"))
 
+
+
+def test_importing_the_old_romm_csv(env):
+    """The one-time import of Rom_Mapping_RomM.csv (Folder,romm; BOM and Windows line endings)."""
+    server, c, rom = collection(env)
+    text = ("﻿Folder,romm\r\namigacdtv,commodore-cdtv\r\nsnes,snes\r\ngbc,\r\njunk,psx\r\n"
+            "gone,n64\r\nweird,Not A Slug\r\nexodos,\r\n")
+    d = c.post("/api/romm/import", data=text.encode("utf-8"), content_type="text/csv").get_json()
+    r = d["imported"]
+    assert r["imported"] == 3 and r["already"] == 1 and r["empty"] == 2
+    assert r["missing"] == ["gone"] and r["invalid"] == ["weird: Not A Slug"]
+    assert r["excluded"] == 1, "gbc is empty in the file: excluded, not picked up by its name"
+    m = mounts(d)
+    assert m["commodore-cdtv"] == os.path.join(rom, "amigacdtv") and m["psx"] == os.path.join(rom, "junk")
+    assert "gbc" not in m
+    saved = json.loads(env.read_config("romm-mapper.json"))["map"]
+    assert saved["collection/amigacdtv"] == "commodore-cdtv" and "collection/snes" not in saved
+    assert c.post("/api/romm/import", data="nonsense", content_type="text/csv").status_code == 400

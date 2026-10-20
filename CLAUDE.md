@@ -32,8 +32,9 @@ and tests create real symlinks - run the tests on Linux (CI: `.github/workflows/
   its own choice. RomM facts it relies on are in the module docstring.
 - Older files must keep working: any change to stored formats gets a conversion and a case in
   `tests/test_upgrades.py` (rows without labels, the minutes/hours schedule, one-folder and Rom
-  Sync `romm-mapper.json`). There is no CSV import or export (removed in 1.0.3) - don't add one
-  back without asking.
+  Sync `romm-mapper.json`). There is no CSV import or export for the frontend grid (removed in
+  1.0.3) - don't add one back without asking. The only CSV import is the owner-requested one-time
+  RomM import (`POST /api/romm/import`, Rom_Mapping_RomM.csv).
 - RomM reads never block the page: any read `romm_view` needs (full, or the quick re-check after
   30 s - `romm_read_due`) runs in the background (`start_romm_read`, `/api/romm/progress`) and the
   answer is `{reading}` meanwhile.

@@ -5,6 +5,14 @@ release. Newest first.
 
 ## [Unreleased]
 
+## [1.0.12] - 2026-10-20
+
+### New
+- **Import the old RomM mapping CSV.** Drop `Rom_Mapping_RomM.csv` (`Folder,romm`) on the RomM tab
+  to map every folder in it at once: each folder gets its platform, rows without a platform are left
+  out of RomM (a folder named like a platform is excluded so it isn't picked up anyway). A summary
+  lists folders that weren't found, platforms RomM doesn't know and values that were skipped.
+
 ## [1.0.11] - 2026-10-20
 
 ### Changed

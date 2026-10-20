@@ -193,6 +193,10 @@ gets compose's long syntax; add `:ro` / `read_only: true` for read-only).
   subfolder is then a category - exclude (or never-read) the ones that aren't, like `images` or
   `manuals`. A subfolder that is a platform of its own (lolroms' `Satellaview`) gets its own mount.
 - **RomM volumes** tab: the volume lines above, for the RomM service in its compose file.
+- **Import a RomM mapping (CSV)**: a one-time import of the old `Rom_Mapping_RomM.csv`
+  (`Folder,romm`): drop it on the tab and every folder gets its platform. Folders are looked up in
+  the download folders; an empty platform means "not in RomM" (excluded if the folder's name would
+  make it a platform anyway). A summary lists missing folders, custom platforms and skipped values.
 - **config.yml**: merge into RomM's `config.yml` and restart RomM - `filesystem.structure` (default,
   firmware, the platforms with categories), `exclude.roms.multi_file.names` (subfolders that aren't
   games: never-read names, firmware, raw dumps, your excludes, platforms of their own) and

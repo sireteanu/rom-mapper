@@ -9,8 +9,10 @@ platforms with relative platform links next to it plus a generated config.yml. S
 choices live in romm-mapper.json in the config folder - the same file Rom Sync used.
 """
 
+import csv
 import gzip
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -907,6 +909,72 @@ def api_romm_options():
         romm_save(cur)
     folders = any(k in body for k in ("sources", "depths", "skip_names"))
     return jsonify(romm_view(fresh=folders, reuse=not folders))
+
+
+@app.post("/api/romm/import")
+def api_romm_import():
+    """One-time import of the old Rom_Mapping_RomM.csv: "Folder,romm" rows, a folder (inside a
+    download folder) and its RomM platform. Rows without a platform are left alone; a folder named
+    like its platform needs no choice. Saved straight away; the answer says what happened."""
+    text = (request.get_data(as_text=True) or "").lstrip("\ufeff")
+    try:
+        lines = [r for r in csv.reader(io.StringIO(text)) if r and any(c.strip() for c in r)]
+    except csv.Error as e:
+        return jsonify({"error": f"Not a readable CSV file: {e}"}), 400
+    if not lines or len(lines[0]) < 2:
+        return jsonify({"error": "Expected a header row (Folder,romm) and one row per folder."}), 400
+    with romm_lock:
+        cur = romm_saved()
+        sources, links_dir, _depths, _skip, _key = romm_setup(cur)
+        if not sources:
+            return jsonify({"error": "Add your download folder first - the CSV's folders are looked up in it."}), 400
+        roots = [os.path.relpath(p, links_dir) for p in sources]
+        mapping = dict(cur.get("map") or {})
+        report = {"imported": 0, "already": 0, "empty": 0, "excluded": 0, "missing": [], "custom": [], "invalid": []}
+        empty = []
+        for row in lines[1:]:
+            folder = row[0].strip().strip("/")
+            value = (row[1] if len(row) > 1 else "").strip()
+            if not folder:
+                continue
+            if not value:
+                report["empty"] += 1
+                empty.append(folder)
+                continue
+            try:
+                action = romm.check_action(value)
+            except ValueError:
+                report["invalid"].append(f"{folder}: {value}")
+                continue
+            root = next((r for r, p in zip(roots, sources) if os.path.isdir(os.path.join(p, folder))), None)
+            if root is None:
+                report["missing"].append(folder)
+                root = roots[0]
+            path = f"{root}/{folder}"
+            if action == folder.split("/")[-1] and action in romm.SLUGS and path not in mapping:
+                report["already"] += 1                  # found on its own: no choice needed
+                continue
+            if action not in romm.SLUGS and action not in ("exclude", "skip", "merge") and not action.startswith("bios:"):
+                report["custom"].append(action)
+            mapping[path] = action
+            report["imported"] += 1
+        cur["map"] = mapping
+        romm_save(cur)
+        # a row without a platform means "not in RomM": a folder named like a platform would be
+        # picked up on its own, so it's excluded
+        m, _saved, _error = romm_mapping(reuse=True)
+        if m is not None:
+            for folder in empty:
+                path = next((f"{r}/{folder}" for r, p in zip(roots, sources) if os.path.isdir(os.path.join(p, folder))), None)
+                if path and m.res.get(path, {}).get("kind") == romm.PLATFORM and path not in mapping:
+                    mapping[path] = "exclude"
+                    report["excluded"] += 1
+            if report["excluded"]:
+                cur["map"] = mapping
+                romm_save(cur)
+    log(f"RomM CSV imported: {report['imported']} folders mapped, {report['already']} already right, "
+        f"{report['empty']} without a platform ({report['excluded']} of them excluded)")
+    return jsonify({**romm_view(reuse=True), "imported": report})
 
 
 @app.put("/api/romm/map")
