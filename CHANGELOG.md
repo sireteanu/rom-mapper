@@ -5,6 +5,16 @@ release. Newest first.
 
 ## [Unreleased]
 
+## [1.0.11] - 2026-10-20
+
+### Changed
+- **No script: Docker mounts RomM's platform folders.** The new **RomM volumes** tab has the
+  volume lines for RomM's compose file, one per platform (`/path/to/roms/amigacdtv` ->
+  `/romm/library/roms/commodore-cdtv`). Docker mounts them every time RomM starts, so they survive
+  reboots; after a change, paste them again and Compose Up RomM. A folder with a `:` in its name
+  gets compose's long volume syntax.
+- `unraid/romm-mounts.sh`, the **Mounts** tab and `romm-mounts.tsv` are gone.
+
 ## [1.0.10] - 2026-10-20
 
 ### Changed

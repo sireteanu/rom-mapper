@@ -86,7 +86,7 @@ def test_settings_from_the_platform_links_versions_still_load(env):
     server, c = env.start()
     d = c.get("/api/romm").get_json()
     assert d["error"] is None and d["options"] == {"skip_names": ["media"]}
-    assert f"{os.path.join(rom, 'amigacdtv')}\tcommodore-cdtv" in d["outputs"]["mounts"]
+    assert f'"{os.path.join(rom, "amigacdtv")}:/romm/library/roms/commodore-cdtv"' in d["outputs"]["volumes"]
 
 
 def test_categories_chosen_in_1_0_9_are_read_as_the_platform(env):

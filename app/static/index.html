@@ -280,12 +280,11 @@
 </main>
 
 <main id="paneRomm" class="romm" hidden>
-  <p class="intro">Pick the RomM platform for each of your folders. Each folder with a platform is
-    <b>bind-mounted</b> under RomM's roms folder with the platform's name (<code>amigacdtv</code> &rarr;
-    <code>roms/commodore-cdtv</code>) by the Unraid script <code>romm-mounts.sh</code>, from the <b>Mounts</b> list
-    ROM Mapper keeps. Subfolders that belong to a platform (<code>gbc/+translations</code>) become categories in
-    <code>config.yml</code>. Nothing is moved or copied. Run the script, merge the config into RomM's
-    <code>config.yml</code>, and scan RomM's library.</p>
+  <p class="intro">Pick the RomM platform for each of your folders. Each folder with a platform becomes a
+    <b>volume</b> of RomM's container, mounted as <code>roms/&lt;platform&gt;</code> (<code>amigacdtv</code> &rarr;
+    <code>roms/commodore-cdtv</code>): paste the <b>RomM volumes</b> into RomM's compose file and Compose Up RomM.
+    Subfolders that belong to a platform (<code>gbc/+translations</code>) become categories in <code>config.yml</code>.
+    Nothing is moved or copied. After a change, paste both again and scan RomM's library.</p>
   <div class="field"><span>Download folders</span>
     <div id="rSources" class="sources"></div>
     <div class="srcadd"><input type="text" id="rSourceNew" placeholder="/path/to/downloads">
@@ -320,7 +319,7 @@
     </section>
     <section>
       <div class="bar">
-        <div class="tabs"><button class="tab on" data-out="config">config.yml</button><button class="tab" data-out="mounts">Mounts</button></div>
+        <div class="tabs"><button class="tab on" data-out="config">config.yml</button><button class="tab" data-out="volumes">RomM volumes</button></div>
         <button id="rCopy">Copy</button>
         <button class="ref-btn" data-out="list" title="Every platform RomM knows">RomM platforms list</button>
       </div>
@@ -758,7 +757,7 @@ $("srcSave").onclick = async () => {
   const num = (n) => (n || 0).toLocaleString();
   const HELP = {
     config: "Merge into RomM's config.yml (in its /romm/config folder), keeping your other settings, then restart RomM.",
-    mounts: "",
+    volumes: "For RomM's compose file: the RomM service's volumes - replace its own .../romm/library/roms line with these. Docker mounts them when RomM starts; after a change, paste them again and Compose Up RomM.",
   };
   let R = null, tab = "config", outTab = "config";
   const pending = {};
@@ -1012,9 +1011,6 @@ $("srcSave").onclick = async () => {
     const isList = tab === "list";
     $("rOut").hidden = isList; $("rList").hidden = !isList; $("rCopy").hidden = isList;
     if (isList) renderList(); else $("rOut").textContent = d.outputs[tab] || "";
-    HELP.mounts = `ROM Mapper keeps this list in ${d.mounts_file || "its config folder"} (its config folder). `
-      + "On Unraid, unraid/romm-mounts.sh mounts each folder at <RomM's roms folder>/<platform> and restarts RomM - "
-      + "run it at array start and after you change something here.";
     $("rHelp").textContent = isList ? "" : HELP[tab];
     $("rApply").hidden = !d.old_links;
     if (d.old_links) $("rApply").textContent = `Remove ${num(d.old_links)} old platform link${d.old_links === 1 ? "" : "s"}`;

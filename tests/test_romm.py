@@ -296,30 +296,44 @@ def collection(env):
 
 
 def mounts(d):
-    """{platform: source folder} from the mount list."""
-    out = {}
-    for line in d["outputs"]["mounts"].splitlines():
-        if line and not line.startswith("#"):
-            src, slug = line.split("\t")
-            out[slug] = src
+    """{platform: source folder} from the RomM volume lines (short and long syntax)."""
+    out, src = {}, None
+    for line in d["outputs"]["volumes"].splitlines():
+        line = line.strip()
+        if line.startswith('- "'):
+            src_dst = json.loads(line[2:])
+            source, target = src_dst.rsplit(":/romm/library/roms/", 1)
+            out[target] = source
+        elif line.startswith("source: "):
+            src = json.loads(line[len("source: "):])
+        elif line.startswith("target: "):
+            out[json.loads(line[len("target: "):]).rsplit("/", 1)[1]] = src
     return out
 
 
-def test_every_platform_folder_is_a_mount(env):
+def test_every_platform_folder_is_a_volume_of_romm(env):
     server, c, rom = collection(env)
     d = c.get("/api/romm").get_json()
-    m = mounts(d)
-    assert m == {"snes": os.path.join(rom, "snes"), "commodore-cdtv": os.path.join(rom, "amigacdtv"),
-                 "gbc": os.path.join(rom, "gbc"), "dc": os.path.join(rom, "dc")}, "junk and exodos aren't"
+    assert d["outputs"]["volumes"].startswith("    volumes:")
+    assert mounts(d) == {"snes": os.path.join(rom, "snes"), "commodore-cdtv": os.path.join(rom, "amigacdtv"),
+                         "gbc": os.path.join(rom, "gbc"), "dc": os.path.join(rom, "dc")}, "junk and exodos aren't"
     r = rows(d)
     assert r["collection/amigacdtv"]["used"] and r["collection/gbc/+translations"]["category"]
-    with open(d["mounts_file"], encoding="utf-8") as f:
-        assert f.read() == d["outputs"]["mounts"], "written to the config folder for the host script"
-    assert d["mounts_file"] == os.path.join(env.config, "romm-mounts.tsv")
-    # a choice changes the file
-    c.put("/api/romm/map", json={"path": "collection/junk", "action": "psx"})
-    with open(d["mounts_file"], encoding="utf-8") as f:
-        assert f"{os.path.join(rom, 'junk')}\tpsx" in f.read()
+    assert not [n for n in os.listdir(env.config) if "mounts" in n], "nothing for a host script any more"
+    d = c.put("/api/romm/map", json={"path": "collection/junk", "action": "psx"}).get_json()
+    assert mounts(d)["psx"] == os.path.join(rom, "junk")
+
+
+def test_a_folder_with_a_colon_gets_the_long_volume_syntax(env):
+    """Compose's short syntax splits on ":" - a folder like "Sega: Classics" needs the long one."""
+    server, c, rom = collection(env)
+    make_dirs(rom, "Sega: Classics")
+    c.get("/api/romm?fresh=1")
+    d = c.put("/api/romm/map", json={"path": "collection/Sega: Classics", "action": "genesis"}).get_json()
+    v = d["outputs"]["volumes"]
+    assert "      - type: bind\n" in v and '"/romm/library/roms/genesis"' in v
+    assert mounts(d)["genesis"] == os.path.join(rom, "Sega: Classics")
+    assert f'- "{os.path.join(rom, "snes")}:/romm/library/roms/snes"' in v, "the others stay short"
 
 
 def test_config_yml_has_categories_for_platforms_with_subfolders(env):

@@ -688,16 +688,14 @@ def romm_view(fresh=False, reuse=False):
     base["error"] = error
     if m is None:
         return {**base, "rows": [], "platforms": [], "firmware": [], "warnings": [], "summary":
-                {"platforms": 0, "firmware": 0, "files": 0}, "links": {}, "old_links": 0, "mounts_file": MOUNTS_FILE,
-                "outputs": {"config": "", "mounts": ""}}
+                {"platforms": 0, "firmware": 0, "files": 0}, "links": {}, "old_links": 0,
+                "outputs": {"config": "", "volumes": ""}}
     rows = m.rows()
-    mounts = m.mounts_tsv()
-    romm_write_mounts(mounts, len(m.platforms))
     return {**base,
-            "links": {"roots": m.roots}, "old_links": romm.old_links(m), "mounts_file": MOUNTS_FILE,
+            "links": {"roots": m.roots}, "old_links": romm.old_links(m),
             "rows": rows, "groups": romm_groups(m, rows), "platforms": m.platforms, "firmware": m.firmware,
             "warnings": m.warnings() + romm_level_warnings(saved), "summary": m.summary(),
-            "outputs": {"config": m.config_yml(), "mounts": mounts}}
+            "outputs": {"config": m.config_yml(), "volumes": m.volumes()}}
 
 
 def romm_level_warnings(saved):
@@ -707,23 +705,6 @@ def romm_level_warnings(saved):
         return []
     return [", ".join(shallow) + " is set to 1 level: subfolders aren't read, so subfolders like +translations "
             "can't become categories and RomM would read each as one game. Use 2 levels if you have such subfolders."]
-
-
-MOUNTS_FILE = os.path.join(CONFIG_DIR, "romm-mounts.tsv")
-
-
-def romm_write_mounts(text, count):
-    """Keep romm-mounts.tsv (read by unraid/romm-mounts.sh on the host) in line with the mapping;
-    written only when it changes."""
-    with romm_lock:
-        try:
-            with open(MOUNTS_FILE, encoding="utf-8") as f:
-                if f.read() == text:
-                    return
-        except FileNotFoundError:
-            pass
-        atomic_write(MOUNTS_FILE, text)
-    log(f"RomM mount list updated: {count} platforms ({os.path.basename(MOUNTS_FILE)}) - run romm-mounts.sh")
 
 
 def romm_remove_old_links(trigger):
