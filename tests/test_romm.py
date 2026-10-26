@@ -295,19 +295,24 @@ def collection(env):
     return server, c, rom
 
 
+def yaml_value(v):
+    """A plain or double-quoted YAML scalar, as the volume lines write them."""
+    return json.loads(v) if v.startswith('"') else v
+
+
 def mounts(d):
     """{platform: source folder} from the RomM volume lines (short and long syntax)."""
     out, src = {}, None
     for line in d["outputs"]["volumes"].splitlines():
         line = line.strip()
-        if line.startswith('- "'):
-            src_dst = json.loads(line[2:])
+        if line.startswith("- ") and not line.startswith("- type:"):
+            src_dst = yaml_value(line[2:])
             source, target = src_dst.rsplit(":/romm/library/roms/", 1)
             out[target] = source
         elif line.startswith("source: "):
-            src = json.loads(line[len("source: "):])
+            src = yaml_value(line[len("source: "):])
         elif line.startswith("target: "):
-            out[json.loads(line[len("target: "):]).rsplit("/", 1)[1]] = src
+            out[yaml_value(line[len("target: "):]).rsplit("/", 1)[1]] = src
     return out
 
 
@@ -331,9 +336,30 @@ def test_a_folder_with_a_colon_gets_the_long_volume_syntax(env):
     c.get("/api/romm?fresh=1")
     d = c.put("/api/romm/map", json={"path": "collection/Sega: Classics", "action": "genesis"}).get_json()
     v = d["outputs"]["volumes"]
-    assert "      - type: bind\n" in v and '"/romm/library/roms/genesis"' in v
+    assert "      - type: bind\n" in v and "        target: /romm/library/roms/genesis\n" in v
+    assert f'        source: "{os.path.join(rom, "Sega: Classics")}"' in v, '": " needs quotes'
     assert mounts(d)["genesis"] == os.path.join(rom, "Sega: Classics")
-    assert f'- "{os.path.join(rom, "snes")}:/romm/library/roms/snes"' in v, "the others stay short"
+    assert f'      - {os.path.join(rom, "snes")}:/romm/library/roms/snes\n' in v, "the others stay short"
+
+
+def test_volume_lines_are_plain_unless_yaml_needs_quotes(env):
+    """Volume paths are written like a hand-written compose file (no quotes); only a path YAML would
+    read differently (" #" starts a comment) is quoted."""
+    server, c, rom = collection(env)
+    make_dirs(rom, "Game Boy #2")
+    c.get("/api/romm?fresh=1")
+    d = c.put("/api/romm/map", json={"path": "collection/Game Boy #2", "action": "gb"}).get_json()
+    v = d["outputs"]["volumes"]
+    assert f'      - {os.path.join(rom, "gbc")}:/romm/library/roms/gbc\n' in v
+    assert f'      - "{os.path.join(rom, "Game Boy #2")}:/romm/library/roms/gb"\n' in v
+    assert mounts(d)["gb"] == os.path.join(rom, "Game Boy #2")
+
+
+def test_yaml_path():
+    from romm import yaml_path
+    assert yaml_path("/a/Super Famicom (J)/x:/romm/library/roms/snes") == "/a/Super Famicom (J)/x:/romm/library/roms/snes"
+    for s in ("/a/Sega: Classics", "/a/b #1", "/a/b ", "/a/b:", "/a/\tb", "relative"):
+        assert yaml_path(s) == json.dumps(s), s
 
 
 def test_config_yml_has_categories_for_platforms_with_subfolders(env):

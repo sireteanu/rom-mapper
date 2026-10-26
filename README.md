@@ -167,9 +167,9 @@ under the platform's name, by Docker, every time RomM starts:
 
 ```yaml
     volumes:                      # the RomM service
-      - "/path/to/roms/amigacdtv:/romm/library/roms/commodore-cdtv"
-      - "/path/to/roms/gbc:/romm/library/roms/gbc"
-      - "/path/to/lolroms/Nintendo/Super Famicom:/romm/library/roms/snes"
+      - /path/to/roms/amigacdtv:/romm/library/roms/commodore-cdtv
+      - /path/to/roms/gbc:/romm/library/roms/gbc
+      - /path/to/lolroms/Nintendo/Super Famicom:/romm/library/roms/snes
 ```
 
 RomM sees plain folders with the right names - no renames, no platform excludes, nothing moved, no

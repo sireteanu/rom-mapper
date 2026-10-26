@@ -5,6 +5,13 @@ release. Newest first.
 
 ## [Unreleased]
 
+## [1.0.14] - 2026-10-26
+
+### Fixed
+- **RomM volume lines without quotes.** The lines are written like a hand-written compose file
+  (`- /path/to/roms/psp:/romm/library/roms/psp`). Quotes are only added where YAML needs them - a
+  folder with `: ` or ` #` in its name.
+
 ## [1.0.13] - 2026-10-20
 
 ### New
