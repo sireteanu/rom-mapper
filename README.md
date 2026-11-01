@@ -1,5 +1,12 @@
 # ROM Mapper
 
+> [!IMPORTANT]
+> **No longer maintained - moved to [romm_tools](https://github.com/sireteanu/romm_tools).** ROM Mapper is now
+> the *Frontend links* and *RomM library* pages of romm_tools (with its full history), next to save sync
+> and *Game names*. Your mapping files carry over: see
+> [Moving over from romm_sync or ROM Mapper](https://github.com/sireteanu/romm_tools#moving-over-from-romm_sync-or-rom-mapper).
+> This repository is archived (read-only).
+
 ROM Mapper builds folder layouts for emulation frontends (Batocera/RGS, RetroBat, Knulli, ...)
 out of **links** into your ROM folders, and gives [RomM](https://github.com/rommapp/romm) its
 platform folders as volume mounts of your folders. Nothing is copied or moved: each frontend gets its own folder of
